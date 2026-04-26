@@ -1,6 +1,7 @@
 const app = require('./app');
 const env = require('./config/env');
 const prisma = require('./config/prisma');
+const { redis } = require('./config/redis');
 
 const server = app.listen(env.port, () => {
   console.log(`Postly API listening on port ${env.port} (${env.nodeEnv})`);
@@ -14,6 +15,11 @@ async function shutdown(signal) {
       await prisma.$disconnect();
     } catch (err) {
       console.error('Error during prisma disconnect:', err);
+    }
+    try {
+      if (redis.isOpen) await redis.quit();
+    } catch (err) {
+      console.error('Error during redis disconnect:', err);
     }
     process.exit(0);
   });

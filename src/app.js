@@ -5,11 +5,15 @@ const morgan = require('morgan');
 
 const env = require('./config/env');
 const healthRouter = require('./routes/health.routes');
+const authRouter = require('./routes/auth.routes');
+const { attachUserIfPresent } = require('./middlewares/auth.middleware');
+const { rateLimit } = require('./middlewares/rateLimit.middleware');
 const { notFoundHandler, errorHandler } = require('./middlewares/error.middleware');
 
 const app = express();
 
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(cors());
@@ -21,6 +25,11 @@ if (!env.isTest) {
 }
 
 app.use('/health', healthRouter);
+
+// API: identify caller (if authenticated) before rate limiting so the
+// limiter can key on user_id; falls back to IP for unauthenticated.
+app.use('/api', attachUserIfPresent, rateLimit());
+app.use('/api/auth', authRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
