@@ -6,6 +6,8 @@ const morgan = require('morgan');
 const env = require('./config/env');
 const healthRouter = require('./routes/health.routes');
 const authRouter = require('./routes/auth.routes');
+const userRouter = require('./routes/user.routes');
+const oauthRouter = require('./routes/oauth.routes');
 const { attachUserIfPresent } = require('./middlewares/auth.middleware');
 const { rateLimit } = require('./middlewares/rateLimit.middleware');
 const { notFoundHandler, errorHandler } = require('./middlewares/error.middleware');
@@ -30,6 +32,8 @@ app.use('/health', healthRouter);
 // limiter can key on user_id; falls back to IP for unauthenticated.
 app.use('/api', attachUserIfPresent, rateLimit());
 app.use('/api/auth', authRouter);
+app.use('/api/user', userRouter);
+app.use('/api/oauth', oauthRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
