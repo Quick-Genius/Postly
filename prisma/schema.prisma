@@ -1,0 +1,136 @@
+// Postly — Prisma schema
+// Designed up-front so subsequent PRs (auth, posts, publishing, bots)
+// can layer on without further migrations to these core tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────
+
+enum Platform {
+  TWITTER
+  LINKEDIN
+  INSTAGRAM
+  FACEBOOK
+  THREADS
+}
+
+enum PostType {
+  TEXT
+  IMAGE
+  VIDEO
+  CAROUSEL
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  QUEUED
+  PUBLISHED
+  PARTIAL
+  FAILED
+  CANCELED
+}
+
+enum PlatformPostStatus {
+  PENDING
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+// ─── Models ──────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  name            String
+  bio             String?
+  defaultTone     String?  @map("default_tone")
+  defaultLanguage String?  @map("default_language")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  socialAccounts SocialAccount[]
+  aiKey          AiKey?
+  posts          Post[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model SocialAccount {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  platform        Platform
+  accessTokenEnc  String   @map("access_token_enc")
+  refreshTokenEnc String?  @map("refresh_token_enc")
+  handle          String
+  connectedAt     DateTime @default(now()) @map("connected_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
+  @@map("social_accounts")
+}
+
+model AiKey {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @map("user_id") @db.Uuid
+  openaiKeyEnc    String?  @map("openai_key_enc")
+  anthropicKeyEnc String?  @map("anthropic_key_enc")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_keys")
+}
+
+model Post {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  idea      String     @db.Text
+  postType  PostType   @default(TEXT) @map("post_type")
+  tone      String?
+  language  String?
+  modelUsed String?    @map("model_used")
+  publishAt DateTime?  @map("publish_at")
+  status    PostStatus @default(DRAFT)
+  deletedAt DateTime?  @map("deleted_at")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformPosts PlatformPost[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([publishAt])
+  @@index([deletedAt])
+  @@map("posts")
+}
+
+model PlatformPost {
+  id           String             @id @default(uuid()) @db.Uuid
+  postId       String             @map("post_id") @db.Uuid
+  platform     Platform
+  content      String             @db.Text
+  status       PlatformPostStatus @default(PENDING)
+  publishedAt  DateTime?          @map("published_at")
+  errorMessage String?            @map("error_message") @db.Text
+  attempts     Int                @default(0)
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([status])
+  @@map("platform_posts")
+}
