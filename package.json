@@ -29,6 +29,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "franc": "^6.2.0",
+    "grammy": "^1.42.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",

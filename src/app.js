@@ -11,6 +11,7 @@ const oauthRouter     = require('./routes/oauth.routes');
 const contentRouter   = require('./routes/content.routes');
 const postsRouter     = require('./routes/posts.routes');
 const dashboardRouter = require('./routes/dashboard.routes');
+const telegramRouter  = require('./routes/telegram.routes');
 const { attachUserIfPresent } = require('./middlewares/auth.middleware');
 const { rateLimit } = require('./middlewares/rateLimit.middleware');
 const { notFoundHandler, errorHandler } = require('./middlewares/error.middleware');
@@ -40,6 +41,8 @@ app.use('/api/oauth',   oauthRouter);
 app.use('/api/content',   contentRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/dashboard', dashboardRouter);
+// Telegram webhook — mounted outside JWT auth; secured by TELEGRAM_WEBHOOK_SECRET
+app.use('/api/telegram',  telegramRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

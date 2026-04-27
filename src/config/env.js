@@ -31,6 +31,9 @@ const env = {
   linkedinClientId: process.env.LINKEDIN_CLIENT_ID || '',
   linkedinClientSecret: process.env.LINKEDIN_CLIENT_SECRET || '',
   oauthCallbackUrl: process.env.OAUTH_CALLBACK_URL || 'http://localhost:3000/api/oauth',
+  // Telegram Bot (optional — bot feature is disabled when not set)
+  telegramBotToken:      process.env.TELEGRAM_BOT_TOKEN      || null,
+  telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
 };
 
 env.isProd = env.nodeEnv === 'production';
