@@ -43,6 +43,8 @@ app.use('/api/posts',     postsRouter);
 app.use('/api/dashboard', dashboardRouter);
 // Telegram webhook — mounted outside JWT auth; secured by TELEGRAM_WEBHOOK_SECRET
 app.use('/api/telegram',  telegramRouter);
+// WhatsApp webhook — mounted outside JWT auth; secured by Twilio signature validation
+app.use('/api/bot/whatsapp', require('./routes/whatsapp.routes'));
 
 app.use(notFoundHandler);
 app.use(errorHandler);

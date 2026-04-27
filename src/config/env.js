@@ -34,6 +34,9 @@ const env = {
   // Telegram Bot (optional — bot feature is disabled when not set)
   telegramBotToken:      process.env.TELEGRAM_BOT_TOKEN      || null,
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
+  // Twilio / WhatsApp Bot (optional — signature validation skipped when absent)
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || null,
+  appUrl:          process.env.APP_URL           || `http://localhost:${process.env.PORT || 3000}`,
 };
 
 env.isProd = env.nodeEnv === 'production';
