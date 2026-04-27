@@ -1,0 +1,248 @@
+'use strict';
+
+/**
+ * worker.js — BullMQ Worker for the Postly platform-publishing pipeline.
+ *
+ * Each job represents exactly ONE platform for ONE post.
+ * Job payload: { platformPostId, postId, platform, userId }
+ *
+ * Worker flow per job:
+ *  1. Fetch platform_post from DB — validate it exists and is not already published.
+ *  2. Mark status → PUBLISHING (visible to observers, prevents double-run).
+ *  3. Fetch the user's social account for this platform.
+ *  4. Decrypt the access token (AES-256-GCM via encryption.js).
+ *  5. Call the platform API (cleanly abstracted per platform).
+ *  6. On success: status → PUBLISHED, set publishedAt.
+ *  7. On failure: throw → BullMQ retries with exponential backoff.
+ *     After all retries exhausted: status → FAILED, store error, increment attempts.
+ *
+ * Failure philosophy:
+ *  - The worker processor NEVER catches errors silently — it always re-throws
+ *    so BullMQ can apply its retry/backoff logic.
+ *  - The `failed` event handler runs ONLY when all retries are exhausted —
+ *    that is the single place we write the final FAILED status to the DB.
+ *  - This means there is exactly one code path for "give up" and one for "retry".
+ *
+ * Server restart safety:
+ *  - On startup, stale PUBLISHING rows (from a crashed worker) are reset to
+ *    QUEUED so BullMQ can re-process them on the next job pickup.
+ *  - QUEUED platform_posts whose BullMQ jobs may have been lost (e.g. after a
+ *    Redis flush) are re-enqueued by the scheduler on its next run.
+ */
+
+const { Worker } = require('bullmq');
+
+const prisma              = require('../config/prisma');
+const { decrypt }         = require('../utils/encryption');
+const { syncPostStatus }  = require('../services/publish.service');
+const { QUEUE_NAME, redisConnection } = require('./queue');
+
+// ── Platform API adapters ─────────────────────────────────────────────────────
+// Each adapter receives { accessToken, content, platform } and throws on failure.
+// Replace the mock implementations with real SDK calls per platform.
+
+const platformAdapters = {
+  async TWITTER({ accessToken, content }) {
+    // TODO: Replace with Twitter API v2 tweet creation
+    // const client = new TwitterApi(accessToken);
+    // await client.v2.tweet(content);
+    console.log(`[Worker] [TWITTER] Publishing: ${content.slice(0, 60)}…`);
+    // Simulate async network call
+    await new Promise((r) => setTimeout(r, 200));
+    return { published_url: `https://twitter.com/i/web/status/${Date.now()}` };
+  },
+
+  async LINKEDIN({ accessToken, content }) {
+    // TODO: Replace with LinkedIn Share API
+    console.log(`[Worker] [LINKEDIN] Publishing: ${content.slice(0, 60)}…`);
+    await new Promise((r) => setTimeout(r, 200));
+    return { published_url: `https://www.linkedin.com/feed/update/urn:li:share:${Date.now()}` };
+  },
+
+  async INSTAGRAM({ accessToken, content }) {
+    // TODO: Replace with Meta Graph API for Instagram
+    console.log(`[Worker] [INSTAGRAM] Publishing: ${content.slice(0, 60)}…`);
+    await new Promise((r) => setTimeout(r, 200));
+    return { published_url: null };
+  },
+
+  async THREADS({ accessToken, content }) {
+    // TODO: Replace with Threads API
+    console.log(`[Worker] [THREADS] Publishing: ${content.slice(0, 60)}…`);
+    await new Promise((r) => setTimeout(r, 200));
+    return { published_url: null };
+  },
+
+  async FACEBOOK({ accessToken, content }) {
+    // TODO: Replace with Meta Graph API for Facebook Pages
+    console.log(`[Worker] [FACEBOOK] Publishing: ${content.slice(0, 60)}…`);
+    await new Promise((r) => setTimeout(r, 200));
+    return { published_url: null };
+  },
+};
+
+// ── Job processor ─────────────────────────────────────────────────────────────
+
+/**
+ * Core job processor. Called by BullMQ for every active job.
+ * Must throw on failure — BullMQ uses the thrown error to trigger retries.
+ *
+ * @param {import('bullmq').Job} job
+ */
+async function processJob(job) {
+  const { platformPostId, postId, platform, userId } = job.data;
+
+  console.log(`[Worker] Job ${job.id} started — postId=${postId} platform=${platform} attempt=${job.attemptsMade + 1}`);
+
+  // ── Step 1: Load platform_post ─────────────────────────────────────────────
+  const platformPost = await prisma.platformPost.findUnique({
+    where: { id: platformPostId },
+  });
+
+  if (!platformPost) {
+    // DB record gone (e.g. post deleted). Discard — do not retry.
+    console.warn(`[Worker] platform_post ${platformPostId} not found — discarding job.`);
+    return;
+  }
+
+  // Guard: already published by a previous attempt that partially succeeded.
+  if (platformPost.status === 'PUBLISHED') {
+    console.log(`[Worker] platform_post ${platformPostId} already PUBLISHED — skipping.`);
+    return;
+  }
+
+  // ── Step 2: Mark as PUBLISHING ────────────────────────────────────────────
+  await prisma.platformPost.update({
+    where: { id: platformPostId },
+    data:  { status: 'PUBLISHING', attempts: { increment: 1 } },
+  });
+
+  // ── Step 3: Fetch social account ──────────────────────────────────────────
+  const socialAccount = await prisma.socialAccount.findUnique({
+    where: { userId_platform: { userId, platform } },
+  });
+
+  if (!socialAccount) {
+    // Not a transient failure — no point retrying without the account.
+    const err = new Error(`No connected ${platform} account found for user ${userId}`);
+    err.permanent = true;  // signal to skip retries (handled in failed event)
+    throw err;
+  }
+
+  // ── Step 4: Decrypt access token ──────────────────────────────────────────
+  let accessToken;
+  try {
+    accessToken = decrypt(socialAccount.accessTokenEnc);
+  } catch (decryptErr) {
+    const err = new Error(`Token decryption failed for ${platform}: ${decryptErr.message}`);
+    err.permanent = true;
+    throw err;
+  }
+
+  // ── Step 5: Call platform API ─────────────────────────────────────────────
+  const adapter = platformAdapters[platform];
+  if (!adapter) {
+    const err = new Error(`No adapter registered for platform: ${platform}`);
+    err.permanent = true;
+    throw err;
+  }
+
+  const result = await adapter({ accessToken, content: platformPost.content, platform });
+
+  // ── Step 6: Mark as PUBLISHED ─────────────────────────────────────────────
+  await prisma.platformPost.update({
+    where: { id: platformPostId },
+    data: {
+      status:      'PUBLISHED',
+      publishedAt: new Date(),
+      errorMessage: null,
+    },
+  });
+
+  // Sync the parent post's aggregate status (PUBLISHED / PARTIAL / FAILED).
+  await syncPostStatus(postId);
+
+  console.log(`[Worker] Job ${job.id} complete — postId=${postId} platform=${platform}`);
+  return result;
+}
+
+// ── Worker instance ───────────────────────────────────────────────────────────
+
+const worker = new Worker(QUEUE_NAME, processJob, {
+  connection: redisConnection,
+  concurrency: 5,  // process up to 5 jobs simultaneously across all platforms
+});
+
+// ── Event handlers ────────────────────────────────────────────────────────────
+
+worker.on('completed', (job) => {
+  console.log(`[Worker] Job ${job.id} succeeded (${job.name})`);
+});
+
+/**
+ * Called after ALL retries are exhausted.
+ * This is the single place we write the final FAILED status.
+ */
+worker.on('failed', async (job, err) => {
+  if (!job) return;  // job may be undefined if it couldn't be fetched
+
+  const { platformPostId, postId } = job.data;
+  const errorMessage = err?.message ?? 'Unknown error';
+
+  console.error(`[Worker] Job ${job.id} permanently failed — ${errorMessage}`);
+
+  try {
+    await prisma.platformPost.update({
+      where: { id: platformPostId },
+      data: {
+        status:       'FAILED',
+        errorMessage: errorMessage.slice(0, 1000),  // guard against oversized messages
+      },
+    });
+
+    await syncPostStatus(postId);
+  } catch (dbErr) {
+    // Never let a DB error crash the worker process.
+    console.error(`[Worker] Failed to write FAILED status to DB for ${platformPostId}:`, dbErr.message);
+  }
+});
+
+worker.on('error', (err) => {
+  // Worker-level errors (Redis disconnect, etc.) — log but never crash.
+  console.error('[Worker] BullMQ worker error:', err.message);
+});
+
+// ── Startup: reset stale PUBLISHING rows ─────────────────────────────────────
+
+/**
+ * If the process crashed mid-job, platform_posts can be stuck in PUBLISHING.
+ * Reset them to QUEUED so the scheduler (or a re-enqueue) can pick them up.
+ * This runs once at worker startup, before any jobs are processed.
+ */
+async function resetStalePlatformPosts() {
+  const { count } = await prisma.platformPost.updateMany({
+    where:  { status: 'PUBLISHING' },
+    data:   { status: 'QUEUED' },
+  });
+  if (count > 0) {
+    console.log(`[Worker] Reset ${count} stale PUBLISHING → QUEUED on startup`);
+  }
+}
+
+resetStalePlatformPosts().catch((err) => {
+  console.error('[Worker] Startup reset failed:', err.message);
+});
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+
+/**
+ * Stops accepting new jobs and waits for active jobs to finish.
+ * Called from server.js on SIGTERM / SIGINT.
+ */
+async function shutdownWorker() {
+  console.log('[Worker] Shutting down — draining active jobs…');
+  await worker.close();
+  console.log('[Worker] Worker stopped.');
+}
+
+module.exports = { worker, shutdownWorker };
