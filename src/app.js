@@ -42,7 +42,10 @@ app.use('/api/content',   contentRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/dashboard', dashboardRouter);
 // Telegram webhook — mounted outside JWT auth; secured by TELEGRAM_WEBHOOK_SECRET
+// /api/telegram/webhook  — original path (kept for compatibility)
+// /api/bot/telegram      — canonical production path registered with Telegram
 app.use('/api/telegram',  telegramRouter);
+app.use('/api/bot/telegram', telegramRouter);
 // WhatsApp webhook — mounted outside JWT auth; secured by Twilio signature validation
 app.use('/api/bot/whatsapp', require('./routes/whatsapp.routes'));
 
