@@ -32,6 +32,7 @@ const crypto = require('crypto');
 const { redis, connectRedis } = require('../config/redis');
 const prisma  = require('../config/prisma');
 const { encrypt } = require('../utils/encryption');
+const env = require('../config/env');
 
 const STATE_TTL_SECONDS = 600; // 10 minutes — more than enough for user to complete OAuth
 
@@ -91,8 +92,8 @@ async function storeSocialAccount(userId, platform, accessToken, refreshToken, h
  * Requires an authenticated user (userId from JWT).
  */
 async function twitterConnect(userId) {
-  const clientId   = process.env.TWITTER_CLIENT_ID;
-  const redirectUri = process.env.TWITTER_REDIRECT_URI;
+  const clientId   = env.twitterClientId;
+  const redirectUri = env.twitterRedirectUri;
 
   if (!clientId || !redirectUri) {
     throw createError('Twitter OAuth is not configured on this server', 503);
@@ -131,9 +132,9 @@ async function twitterCallback(code, state) {
   if (!code)  throw createError('Missing authorization code', 400);
   if (!state) throw createError('Missing state parameter', 400);
 
-  const clientId     = process.env.TWITTER_CLIENT_ID;
-  const clientSecret = process.env.TWITTER_CLIENT_SECRET;
-  const redirectUri  = process.env.TWITTER_REDIRECT_URI;
+  const clientId     = env.twitterClientId;
+  const clientSecret = env.twitterClientSecret;
+  const redirectUri  = env.twitterRedirectUri;
 
   if (!clientId || !clientSecret || !redirectUri) {
     throw createError('Twitter OAuth is not configured on this server', 503);
@@ -216,8 +217,8 @@ async function twitterCallback(code, state) {
  * Requires an authenticated user (userId from JWT).
  */
 async function linkedinConnect(userId) {
-  const clientId    = process.env.LINKEDIN_CLIENT_ID;
-  const redirectUri = process.env.LINKEDIN_REDIRECT_URI;
+  const clientId    = env.linkedinClientId;
+  const redirectUri = env.linkedinRedirectUri;
 
   if (!clientId || !redirectUri) {
     throw createError('LinkedIn OAuth is not configured on this server', 503);
@@ -253,9 +254,9 @@ async function linkedinCallback(code, state) {
   if (!code)  throw createError('Missing authorization code', 400);
   if (!state) throw createError('Missing state parameter', 400);
 
-  const clientId     = process.env.LINKEDIN_CLIENT_ID;
-  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-  const redirectUri  = process.env.LINKEDIN_REDIRECT_URI;
+  const clientId     = env.linkedinClientId;
+  const clientSecret = env.linkedinClientSecret;
+  const redirectUri  = env.linkedinRedirectUri;
 
   if (!clientId || !clientSecret || !redirectUri) {
     throw createError('LinkedIn OAuth is not configured on this server', 503);

@@ -1,11 +1,17 @@
 const { Router } = require('express');
 const prisma = require('../config/prisma');
 const { redis } = require('../config/redis');
+const env = require('../config/env');
 
 const router = Router();
 
 router.get('/', async (_req, res) => {
   const checks = { database: 'unknown', redis: 'unknown' };
+  const ai_providers = {
+    openai:    Boolean(env.openaiApiKey),
+    anthropic: Boolean(env.anthropicApiKey),
+    groq:      Boolean(env.groqApiKey),
+  };
   let healthy = true;
 
   try {
@@ -29,6 +35,7 @@ router.get('/', async (_req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     checks,
+    ai_providers,
   });
 });
 

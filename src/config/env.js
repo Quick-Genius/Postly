@@ -23,13 +23,16 @@ const env = {
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
   openaiApiKey: process.env.OPENAI_API_KEY || null,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
+  groqApiKey: process.env.GROQ_API_KEY || null,
   // Encryption
   encryptionKey: process.env.ENCRYPTION_KEY,
   // OAuth
   twitterClientId: process.env.TWITTER_CLIENT_ID || '',
   twitterClientSecret: process.env.TWITTER_CLIENT_SECRET || '',
+  twitterRedirectUri: process.env.TWITTER_REDIRECT_URI || 'http://localhost:3000/api/oauth/twitter/callback',
   linkedinClientId: process.env.LINKEDIN_CLIENT_ID || '',
   linkedinClientSecret: process.env.LINKEDIN_CLIENT_SECRET || '',
+  linkedinRedirectUri: process.env.LINKEDIN_REDIRECT_URI || 'http://localhost:3000/api/oauth/linkedin/callback',
   oauthCallbackUrl: process.env.OAUTH_CALLBACK_URL || 'http://localhost:3000/api/oauth',
   // Telegram Bot (optional — bot feature is disabled when not set)
   telegramBotToken:      process.env.TELEGRAM_BOT_TOKEN      || null,

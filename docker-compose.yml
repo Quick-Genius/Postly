@@ -1,21 +1,6 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: postly-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postly}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postly}
-      POSTGRES_DB: ${POSTGRES_DB:-postly}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postly} -d ${POSTGRES_DB:-postly}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+  # Postgres is NOT included here — the app connects to Neon DB via DATABASE_URL in .env.
+  # Only Redis is run locally; it is still required for sessions, rate limiting, and BullMQ.
 
   redis:
     image: redis:7-alpine
@@ -39,20 +24,16 @@ services:
     container_name: postly-app
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
       - .env
     environment:
-      # Override host-based URLs from .env so the container talks to
-      # the compose service hostnames instead of localhost.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postly}:${POSTGRES_PASSWORD:-postly}@postgres:5432/${POSTGRES_DB:-postly}?schema=public
+      # Route Redis to the compose service — everything else (DATABASE_URL, secrets)
+      # comes from .env unchanged, so the app talks to Neon DB directly.
       REDIS_URL: redis://redis:6379
     ports:
       - "${PORT:-3000}:3000"
 
 volumes:
-  postgres_data:
   redis_data:

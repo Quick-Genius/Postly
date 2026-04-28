@@ -22,7 +22,9 @@ const { franc } = require('franc');
 const { buildPrompt, VALID_POST_TYPES, VALID_TONES, VALID_PLATFORMS } = require('../utils/promptBuilder');
 const { generateWithOpenAI }    = require('./openai.service');
 const { generateWithAnthropic } = require('./anthropic.service');
+const { generateWithGroq }      = require('./groq.service');
 const { resolveAiKeys }         = require('./user.service');
+const env                       = require('../config/env');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -241,23 +243,119 @@ async function generateContent(rawBody, userId) {
   // 4. Build prompt
   const prompt = buildPrompt({ idea, post_type, platforms, tone, language });
 
-  // 5. Call the appropriate AI provider
-  let result;
-  if (model === 'openai') {
-    result = await generateWithOpenAI(prompt, userKeys.openai_key);
-  } else {
-    result = await generateWithAnthropic(prompt, userKeys.anthropic_key);
-  }
+  // 5. Run the fallback chain
+  const { result, generated } = await runFallbackChain({ prompt, platforms, model, userKeys });
 
-  // 6. Parse and format
-  const generated = formatGeneratedContent(result.raw, platforms);
-
-  // 7. Return structured response
+  // 6. Return structured response
   return {
     generated,
     model_used:  result.model_used,
     tokens_used: result.tokens_used,
   };
+}
+
+// ── Provider fallback chain ───────────────────────────────────────────────────
+
+/**
+ * Builds the ordered list of provider attempts based on what's available.
+ *
+ * Priority:
+ *   1. User-provided key for the requested model (OpenAI or Anthropic)
+ *   2. System OpenAI key
+ *   3. System Anthropic key
+ *   4. Groq (final fallback)
+ *
+ * Each attempt is a thin closure returning a Promise of the provider result.
+ */
+function buildAttempts({ prompt, model, userKeys }) {
+  const attempts = [];
+  const seen = new Set();
+
+  const push = (label, key, fn) => {
+    if (!key) return;
+    const id = `${label}:${key.slice(-6)}`;
+    if (seen.has(id)) return;       // skip duplicate (e.g. user key === system key)
+    seen.add(id);
+    attempts.push({ label, run: () => fn(prompt, key) });
+  };
+
+  // 1. User-provided key for the requested model
+  if (model === 'openai') {
+    push('user-openai',    userKeys.openai_key,    generateWithOpenAI);
+  } else if (model === 'anthropic') {
+    push('user-anthropic', userKeys.anthropic_key, generateWithAnthropic);
+  }
+
+  // 2. System OpenAI
+  push('system-openai',    env.openaiApiKey,    generateWithOpenAI);
+
+  // 3. System Anthropic
+  push('system-anthropic', env.anthropicApiKey, generateWithAnthropic);
+
+  // 4. Groq (final fallback)
+  push('groq',             env.groqApiKey,      generateWithGroq);
+
+  return attempts;
+}
+
+/**
+ * Tries each provider in order. For every attempt:
+ *   - If the call throws, log and move on to the next provider.
+ *   - If it returns malformed JSON, retry the same provider once, then move on.
+ *
+ * If every provider fails, throws a ContentError with the last seen status.
+ */
+async function runFallbackChain({ prompt, platforms, model, userKeys }) {
+  const attempts = buildAttempts({ prompt, model, userKeys });
+
+  if (attempts.length === 0) {
+    throw new ContentError(
+      'No AI provider is available. Add your OpenAI or Anthropic key under Settings → AI Keys.',
+      422,
+    );
+  }
+
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    for (let tryNum = 1; tryNum <= 2; tryNum++) {
+      try {
+        const result = await attempt.run();
+        const generated = tryParseAndFormat(result.raw, platforms);
+        if (generated) {
+          return { result, generated };
+        }
+        // JSON invalid → retry the same provider once, then break to next
+        console.warn(`[content] ${attempt.label} returned invalid JSON (attempt ${tryNum})`);
+      } catch (err) {
+        // Log without leaking key material; provider services already strip secrets.
+        console.warn(`[content] ${attempt.label} failed: ${err.message}`);
+        lastError = err;
+        break;  // move to next provider — do not retry on transport/auth errors
+      }
+    }
+  }
+
+  // All providers exhausted.
+  const err = new ContentError(
+    'All AI providers failed to generate content. Please retry shortly.',
+    lastError?.status || 502,
+  );
+  throw err;
+}
+
+/**
+ * Attempts to parse + format the raw provider response.
+ * Returns the formatted `generated` object on success, or null on JSON failure
+ * so the caller can retry / fall through.
+ */
+function tryParseAndFormat(raw, platforms) {
+  try {
+    JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return formatGeneratedContent(raw, platforms);
 }
 
 module.exports = { generateContent, ContentError };
