@@ -118,8 +118,56 @@ All variables are documented in [`.env.example`](.env.example). The table below 
 | `TWILIO_WHATSAPP_NUMBER` | WhatsApp | Sender number, e.g. `whatsapp:+14155238886` |
 | `OPENAI_API_KEY` | Optional | System-level OpenAI fallback |
 | `ANTHROPIC_API_KEY` | Optional | System-level Anthropic fallback |
+| `GROQ_API_KEY` | Optional | Final-fallback provider when OpenAI / Anthropic are unavailable |
 | `NODE_ENV` | Yes | `production` in all deployed environments |
 | `PORT` | Auto | Railway injects this; defaults to `3000` |
+
+---
+
+## AI providers
+
+Postly uses a three-tier fallback chain so content generation always succeeds
+as long as at least one provider is reachable.
+
+| Tier | Provider | Model | When it's used |
+|---|---|---|---|
+| 1 | **OpenAI** | `gpt-4o` | User's own key, then system `OPENAI_API_KEY` |
+| 2 | **Anthropic** | `claude-sonnet-4-5` | User's own key, then system `ANTHROPIC_API_KEY` |
+| 3 | **Groq** (fallback) | `llama-3.3-70b-versatile` | When the paid providers are unavailable |
+
+Order of attempts per request:
+
+1. User-provided key for the requested model (`openai` or `anthropic`)
+2. System `OPENAI_API_KEY`
+3. System `ANTHROPIC_API_KEY`
+4. System `GROQ_API_KEY` (final fallback)
+
+Each response is JSON-validated; a malformed response triggers one retry on the
+same provider, after which the chain advances. The request only fails if every
+configured provider fails.
+
+### Setting up Groq (recommended)
+
+1. Sign in at [console.groq.com](https://console.groq.com)
+2. Create an API key under **API Keys**
+3. Set the env var:
+
+```
+GROQ_API_KEY=gsk_...
+```
+
+`GROQ_API_KEY` is **optional** — if you don't set it, the chain simply ends at
+Anthropic. With it set, the system stays available even when both paid
+providers are down.
+
+The `/health` endpoint reports which providers are configured:
+
+```json
+{
+  "status": "ok",
+  "ai_providers": { "openai": true, "anthropic": true, "groq": true }
+}
+```
 
 ---
 

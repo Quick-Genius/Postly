@@ -1,0 +1,576 @@
+{
+  "info": {
+    "name": "Postly API",
+    "_postman_id": "postly-api-collection-v1",
+    "description": "Complete API collection for Postly — multi-platform AI content publishing engine.\n\nSet the `base_url` variable to your deployment URL.\nAfter registering or logging in, copy the `access_token` into the `access_token` collection variable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://postly-production.up.railway.app",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "post_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Returns DB and Redis connectivity status. Used by Railway as the deployment health check."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.access_token) {",
+                  "  pm.collectionVariables.set('access_token', body.data.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', body.data.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"demo@postly.dev\",\n  \"password\": \"Demo1234!\",\n  \"name\": \"Demo User\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Register a new user. Returns access_token, refresh_token, and the created user object (no password material)."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.access_token) {",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', body.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"demo@postly.dev\",\n  \"password\": \"Demo1234!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Returns a fresh access_token + refresh_token pair."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.access_token) {",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', body.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "refresh"]
+            },
+            "description": "Rotates the refresh token. The old token is invalidated immediately."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "logout"]
+            },
+            "description": "Invalidates the refresh token. Idempotent."
+          },
+          "response": []
+        },
+        {
+          "name": "Get current user (/me)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "me"]
+            },
+            "description": "Returns the authenticated user's profile."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Content Generation",
+      "item": [
+        {
+          "name": "Generate content (OpenAI)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idea\": \"We just shipped a new feature that lets users schedule posts up to 30 days in advance.\",\n  \"post_type\": \"announcement\",\n  \"platforms\": [\"twitter\", \"linkedin\"],\n  \"tone\": \"professional\",\n  \"model\": \"openai\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/content/generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "content", "generate"]
+            },
+            "description": "Generates platform-specific content using OpenAI GPT-4o.\n\nValid post_type values: announcement, thread, story, promotional, educational, opinion\nValid platforms: twitter, linkedin, instagram, threads\nValid tones: professional, casual, witty, authoritative, friendly\nValid models: openai, anthropic"
+          },
+          "response": []
+        },
+        {
+          "name": "Generate content (Anthropic)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idea\": \"Share a behind-the-scenes look at how our team works remotely across 5 time zones.\",\n  \"post_type\": \"story\",\n  \"platforms\": [\"linkedin\", \"instagram\"],\n  \"tone\": \"casual\",\n  \"model\": \"anthropic\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/content/generate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "content", "generate"]
+            },
+            "description": "Generates platform-specific content using Anthropic Claude Sonnet."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Posts",
+      "item": [
+        {
+          "name": "Publish post (immediate)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.id) {",
+                  "  pm.collectionVariables.set('post_id', body.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idea\": \"Launching our new scheduled posting feature today!\",\n  \"post_type\": \"TEXT\",\n  \"tone\": \"professional\",\n  \"platforms\": {\n    \"TWITTER\": {\n      \"content\": \"🚀 We just launched scheduled posting! Plan your content up to 30 days ahead. Try it now → postly.dev #ProductUpdate #SocialMedia\"\n    },\n    \"LINKEDIN\": {\n      \"content\": \"Excited to announce that scheduled posting is now live on Postly. After months of development, you can now plan and queue your social content up to 30 days in advance, across all major platforms simultaneously.\\n\\nThis feature addresses one of our most-requested asks from the community.\\n\\n#ProductLaunch #SocialMediaManagement #Postly\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/posts/publish",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "publish"]
+            },
+            "description": "Creates a post and immediately enqueues one BullMQ job per platform. Returns status: QUEUED."
+          },
+          "response": []
+        },
+        {
+          "name": "Schedule post (future)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idea\": \"Weekly roundup post\",\n  \"post_type\": \"TEXT\",\n  \"tone\": \"casual\",\n  \"publish_at\": \"2026-05-01T09:00:00Z\",\n  \"platforms\": {\n    \"TWITTER\": {\n      \"content\": \"Here's what happened in our world this week 🧵\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/posts/schedule",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "schedule"]
+            },
+            "description": "Creates a post with a future publish_at. The cron scheduler dispatches it when the time arrives. Returns status: SCHEDULED."
+          },
+          "response": []
+        },
+        {
+          "name": "List posts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/posts?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "QUEUED", "disabled": true },
+                { "key": "platform", "value": "TWITTER", "disabled": true },
+                { "key": "date_from", "value": "2026-01-01", "disabled": true },
+                { "key": "date_to", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "Paginated list of posts. Soft-deleted posts are excluded automatically.\n\nOptional filters: status, platform, date_from, date_to\nResponse: { data: Post[], meta: { total, page, limit } }"
+          },
+          "response": []
+        },
+        {
+          "name": "Get post by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/posts/{{post_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "{{post_id}}"]
+            },
+            "description": "Returns the post with all platformPost rows including status, attempts, errorMessage, and publishedAt."
+          },
+          "response": []
+        },
+        {
+          "name": "Retry failed platform jobs",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/posts/{{post_id}}/retry",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "{{post_id}}", "retry"]
+            },
+            "description": "Re-enqueues only the FAILED platform jobs for this post. Returns { retried: N }."
+          },
+          "response": []
+        },
+        {
+          "name": "Soft delete post",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/posts/{{post_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "{{post_id}}"]
+            },
+            "description": "Sets deletedAt and cancels PENDING/QUEUED platform jobs. The post is excluded from list results but can be restored."
+          },
+          "response": []
+        },
+        {
+          "name": "Restore soft-deleted post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/posts/{{post_id}}/restore",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "{{post_id}}", "restore"]
+            },
+            "description": "Clears deletedAt and resets status to DRAFT. Returns 404 if the post is not in a deleted state."
+          },
+          "response": []
+        },
+        {
+          "name": "Get post analytics",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/posts/{{post_id}}/analytics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "posts", "{{post_id}}", "analytics"]
+            },
+            "description": "Returns per-platform engagement data. Cached in Redis for 5 minutes."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/dashboard/stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dashboard", "stats"]
+            },
+            "description": "Returns { total_posts, success_rate, posts_per_platform, by_status }."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Get profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/user/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Name\",\n  \"bio\": \"Building in public.\",\n  \"default_tone\": \"professional\",\n  \"default_language\": \"en\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/user/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get AI key status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/user/ai-keys",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "ai-keys"]
+            },
+            "description": "Returns { has_openai_key, has_anthropic_key }. Never returns the key material itself."
+          },
+          "response": []
+        },
+        {
+          "name": "Store AI keys",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"openai_key\": \"sk-...\",\n  \"anthropic_key\": \"sk-ant-...\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/user/ai-keys",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "ai-keys"]
+            },
+            "description": "Encrypts and stores user-provided AI keys (AES-256-GCM). These take precedence over system .env keys."
+          },
+          "response": []
+        },
+        {
+          "name": "List social accounts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/user/social-accounts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "social-accounts"]
+            },
+            "description": "Lists connected social accounts. Token material is never returned."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "OAuth",
+      "item": [
+        {
+          "name": "Twitter — initiate connect",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/oauth/twitter/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "oauth", "twitter", "connect"]
+            },
+            "description": "Returns { auth_url }. Open in browser to complete Twitter OAuth 2.0 PKCE flow."
+          },
+          "response": []
+        },
+        {
+          "name": "LinkedIn — initiate connect",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/oauth/linkedin/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "oauth", "linkedin", "connect"]
+            },
+            "description": "Returns { auth_url }. Open in browser to complete LinkedIn OAuth 2.0 flow."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Bot Webhooks",
+      "item": [
+        {
+          "name": "Telegram webhook (simulate update)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Telegram-Bot-Api-Secret-Token", "value": "your-webhook-secret" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"update_id\": 100000001,\n  \"message\": {\n    \"message_id\": 1,\n    \"from\": { \"id\": 123456789, \"is_bot\": false, \"first_name\": \"Test\" },\n    \"chat\": { \"id\": 123456789, \"type\": \"private\" },\n    \"date\": 1700000000,\n    \"text\": \"/start\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/telegram/webhook",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "telegram", "webhook"]
+            },
+            "description": "Simulates a Telegram update. Requires X-Telegram-Bot-Api-Secret-Token matching TELEGRAM_WEBHOOK_SECRET.\n\nIn production Telegram calls this automatically — you never call it directly."
+          },
+          "response": []
+        },
+        {
+          "name": "WhatsApp webhook (simulate Twilio message)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "From", "value": "whatsapp:+14155238886" },
+                { "key": "Body", "value": "start" },
+                { "key": "To", "value": "whatsapp:+14155238886" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/bot/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "bot", "whatsapp"]
+            },
+            "description": "Simulates a Twilio incoming WhatsApp message. Twilio signature validation runs — requests without a valid X-Twilio-Signature are rejected with 403 in production."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
