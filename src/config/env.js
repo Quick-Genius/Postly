@@ -34,6 +34,15 @@ const env = {
   // Telegram Bot (optional — bot feature is disabled when not set)
   telegramBotToken:      process.env.TELEGRAM_BOT_TOKEN      || null,
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
+  // Twilio / WhatsApp Bot (optional — signature validation skipped when absent)
+  twilioAccountSid:      process.env.TWILIO_ACCOUNT_SID      || null,
+  twilioAuthToken:       process.env.TWILIO_AUTH_TOKEN       || null,
+  twilioWhatsappNumber:  process.env.TWILIO_WHATSAPP_NUMBER  || null,
+  // Public base URL of this deployment — used for webhook registration and
+  // Twilio signature validation. Must be set in production.
+  baseUrl: process.env.BASE_URL || process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`,
+  // Keep APP_URL as a legacy alias so existing code (whatsapp.controller) works.
+  get appUrl() { return this.baseUrl; },
 };
 
 env.isProd = env.nodeEnv === 'production';

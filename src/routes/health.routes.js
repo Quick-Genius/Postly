@@ -1,10 +1,11 @@
 const { Router } = require('express');
 const prisma = require('../config/prisma');
+const { redis } = require('../config/redis');
 
 const router = Router();
 
 router.get('/', async (_req, res) => {
-  const checks = { database: 'unknown' };
+  const checks = { database: 'unknown', redis: 'unknown' };
   let healthy = true;
 
   try {
@@ -12,6 +13,14 @@ router.get('/', async (_req, res) => {
     checks.database = 'ok';
   } catch (_err) {
     checks.database = 'down';
+    healthy = false;
+  }
+
+  try {
+    await redis.ping();
+    checks.redis = 'ok';
+  } catch (_err) {
+    checks.redis = 'down';
     healthy = false;
   }
 
