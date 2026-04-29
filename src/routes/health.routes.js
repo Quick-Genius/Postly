@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const prisma = require('../config/prisma');
-const { redis } = require('../config/redis');
+const { redis, connectRedis } = require('../config/redis');
 const env = require('../config/env');
 
 const router = Router();
@@ -97,7 +97,8 @@ router.get('/', async (_req, res) => {
   }
 
   try {
-    await redis.ping();
+    const redisClient = await connectRedis();
+    await redisClient.ping();
     checks.redis = 'ok';
   } catch (_err) {
     checks.redis = 'down';

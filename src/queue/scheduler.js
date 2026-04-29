@@ -33,6 +33,7 @@
 const cron   = require('node-cron');
 const prisma = require('../config/prisma');
 const { enqueuePublishJobs } = require('../services/publish.service');
+const logger = require('../utils/logger').child('Scheduler');
 
 // ── Cron tick handler ─────────────────────────────────────────────────────────
 
@@ -60,14 +61,14 @@ async function dispatchDuePosts() {
 
   if (duePosts.length === 0) return;
 
-  console.log(`[Scheduler] ${now.toISOString()} — ${duePosts.length} post(s) due`);
+  logger.info('Found due posts', { count: duePosts.length, tickAt: now.toISOString() });
 
   for (const post of duePosts) {
     try {
       await dispatchPost(post);
     } catch (err) {
       // Isolate per-post failures — one bad post must not block others.
-      console.error(`[Scheduler] Failed to dispatch postId=${post.id}:`, err.message);
+      logger.error('Failed to dispatch post', { postId: post.id, err });
     }
   }
 }
@@ -81,7 +82,7 @@ async function dispatchPost(post) {
   if (post.platformPosts.length === 0) {
     // No PENDING platform rows — nothing to publish.
     // Still advance the post status so it doesn't remain SCHEDULED forever.
-    console.warn(`[Scheduler] postId=${post.id} has no PENDING platform_posts — marking QUEUED and skipping.`);
+    logger.warn('Post has no PENDING platform_posts — marking QUEUED and skipping', { postId: post.id });
     await prisma.post.update({
       where: { id: post.id },
       data:  { status: 'QUEUED' },
@@ -99,17 +100,18 @@ async function dispatchPost(post) {
 
   if (count === 0) {
     // Another scheduler instance already claimed this post.
-    console.log(`[Scheduler] postId=${post.id} already claimed — skipping.`);
+    logger.info('Post already claimed by another instance — skipping', { postId: post.id });
     return;
   }
 
   // ── Enqueue one job per platform ──────────────────────────────────────────
   const jobs = await enqueuePublishJobs(post.id, post.userId, post.platformPosts);
 
-  console.log(
-    `[Scheduler] postId=${post.id} — enqueued ${jobs.length} job(s): ` +
-    post.platformPosts.map((pp) => pp.platform).join(', '),
-  );
+  logger.info('Enqueued publish jobs', {
+    postId: post.id,
+    jobCount: jobs.length,
+    platforms: post.platformPosts.map((pp) => pp.platform),
+  });
 }
 
 // ── Cron setup ────────────────────────────────────────────────────────────────
@@ -127,11 +129,11 @@ function startScheduler() {
   schedulerTask = cron.schedule('* * * * *', () => {
     dispatchDuePosts().catch((err) => {
       // Top-level guard — must never let an unhandled rejection crash the process.
-      console.error('[Scheduler] Unhandled error in dispatchDuePosts:', err.message);
+      logger.error('Unhandled error in dispatchDuePosts', { err });
     });
   });
 
-  console.log('[Scheduler] Started — polling for scheduled posts every minute.');
+  logger.info('Started — polling for scheduled posts every minute');
 }
 
 /**
@@ -142,7 +144,7 @@ function stopScheduler() {
   if (schedulerTask) {
     schedulerTask.stop();
     schedulerTask = null;
-    console.log('[Scheduler] Stopped.');
+    logger.info('Stopped');
   }
 }
 

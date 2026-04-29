@@ -13,7 +13,7 @@ function extractToken(req) {
     return headerToken;
   }
 
-  return req.query.token || null;
+  return req.query?.token || null;
 }
 
 function requireAuth(req, res, next) {

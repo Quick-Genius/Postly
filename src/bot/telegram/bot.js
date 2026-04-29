@@ -16,6 +16,7 @@ const env         = require('../../config/env');
 const session     = require('./session');
 const stateMachine = require('./stateMachine');
 const handlers    = require('./handlers');
+const logger      = require('../../utils/logger').child('TelegramBot');
 
 // Guard: bot is optional.  The route layer checks for null before calling.
 if (!env.telegramBotToken) {
@@ -84,13 +85,17 @@ if (env.telegramBotToken) {
   // ── Global error boundary ───────────────────────────────────────────────────
 
   bot.catch(async (err) => {
-    console.error('[TelegramBot] Unhandled error:', err.message ?? err);
+    const ctx = err.ctx;
+    logger.error('Unhandled error in update handler', {
+      err: err.error ?? err,
+      updateType: ctx?.update ? Object.keys(ctx.update).filter((k) => k !== 'update_id')[0] : null,
+      chatId:     ctx?.chat?.id,
+      from:       ctx?.from?.username ?? ctx?.from?.id,
+    });
     try {
-      await err.ctx.reply(
-        '⚠️ An unexpected error occurred. Type /start to begin again.',
-      );
-    } catch {
-      // Swallow — the error reply itself failed (e.g., chat was deleted).
+      await ctx.reply('⚠️ An unexpected error occurred. Type /start to begin again.');
+    } catch (replyErr) {
+      logger.warn('Failed to deliver error reply', { err: replyErr });
     }
   });
 

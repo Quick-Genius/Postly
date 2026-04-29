@@ -30,9 +30,10 @@ function typeKeyboard() {
 const PLATFORMS = [
   { label: '🐦 Twitter',   value: 'twitter'   },
   { label: '💼 LinkedIn',  value: 'linkedin'  },
-  { label: '📸 Instagram', value: 'instagram' },
-  { label: '🧵 Threads',   value: 'threads'   },
-  { label: '👥 Facebook',  value: 'facebook'  },
+  // Uncomment below when adapters are production-ready in conversationService/worker.js
+  // { label: '📸 Instagram', value: 'instagram' },
+  // { label: '🧵 Threads',   value: 'threads'   },
+  // { label: '👥 Facebook',  value: 'facebook'  },
 ];
 
 /**

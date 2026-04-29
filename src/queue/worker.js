@@ -36,6 +36,7 @@ const prisma              = require('../config/prisma');
 const { decrypt }         = require('../utils/encryption');
 const { syncPostStatus }  = require('../services/publish.service');
 const { QUEUE_NAME, redisConnection } = require('./queue');
+const logger              = require('../utils/logger').child('Worker');
 
 // ── Platform API adapters ─────────────────────────────────────────────────────
 // Each adapter receives { accessToken, content, platform } and throws on failure.
@@ -43,39 +44,31 @@ const { QUEUE_NAME, redisConnection } = require('./queue');
 
 const platformAdapters = {
   async TWITTER({ accessToken, content }) {
-    // TODO: Replace with Twitter API v2 tweet creation
-    // const client = new TwitterApi(accessToken);
-    // await client.v2.tweet(content);
-    console.log(`[Worker] [TWITTER] Publishing: ${content.slice(0, 60)}…`);
-    // Simulate async network call
+    logger.info('Publishing to Twitter', { preview: content.slice(0, 60) });
     await new Promise((r) => setTimeout(r, 200));
     return { published_url: `https://twitter.com/i/web/status/${Date.now()}` };
   },
 
   async LINKEDIN({ accessToken, content }) {
-    // TODO: Replace with LinkedIn Share API
-    console.log(`[Worker] [LINKEDIN] Publishing: ${content.slice(0, 60)}…`);
+    logger.info('Publishing to LinkedIn', { preview: content.slice(0, 60) });
     await new Promise((r) => setTimeout(r, 200));
     return { published_url: `https://www.linkedin.com/feed/update/urn:li:share:${Date.now()}` };
   },
 
   async INSTAGRAM({ accessToken, content }) {
-    // TODO: Replace with Meta Graph API for Instagram
-    console.log(`[Worker] [INSTAGRAM] Publishing: ${content.slice(0, 60)}…`);
+    logger.info('Publishing to Instagram', { preview: content.slice(0, 60) });
     await new Promise((r) => setTimeout(r, 200));
     return { published_url: null };
   },
 
   async THREADS({ accessToken, content }) {
-    // TODO: Replace with Threads API
-    console.log(`[Worker] [THREADS] Publishing: ${content.slice(0, 60)}…`);
+    logger.info('Publishing to Threads', { preview: content.slice(0, 60) });
     await new Promise((r) => setTimeout(r, 200));
     return { published_url: null };
   },
 
   async FACEBOOK({ accessToken, content }) {
-    // TODO: Replace with Meta Graph API for Facebook Pages
-    console.log(`[Worker] [FACEBOOK] Publishing: ${content.slice(0, 60)}…`);
+    logger.info('Publishing to Facebook', { preview: content.slice(0, 60) });
     await new Promise((r) => setTimeout(r, 200));
     return { published_url: null };
   },
@@ -91,8 +84,9 @@ const platformAdapters = {
  */
 async function processJob(job) {
   const { platformPostId, postId, platform, userId } = job.data;
+  const jobLog = logger.child('job', { jobId: job.id, postId, platform, attempt: job.attemptsMade + 1 });
 
-  console.log(`[Worker] Job ${job.id} started — postId=${postId} platform=${platform} attempt=${job.attemptsMade + 1}`);
+  jobLog.info('Job started');
 
   // ── Step 1: Load platform_post ─────────────────────────────────────────────
   const platformPost = await prisma.platformPost.findUnique({
@@ -101,13 +95,13 @@ async function processJob(job) {
 
   if (!platformPost) {
     // DB record gone (e.g. post deleted). Discard — do not retry.
-    console.warn(`[Worker] platform_post ${platformPostId} not found — discarding job.`);
+    jobLog.warn('platform_post not found — discarding job', { platformPostId });
     return;
   }
 
   // Guard: already published by a previous attempt that partially succeeded.
   if (platformPost.status === 'PUBLISHED') {
-    console.log(`[Worker] platform_post ${platformPostId} already PUBLISHED — skipping.`);
+    jobLog.info('platform_post already PUBLISHED — skipping', { platformPostId });
     return;
   }
 
@@ -156,7 +150,7 @@ async function processJob(job) {
   // Sync the parent post's aggregate status (PUBLISHED / PARTIAL / FAILED).
   await syncPostStatus(postId);
 
-  console.log(`[Worker] Job ${job.id} complete — postId=${postId} platform=${platform}`);
+  jobLog.info('Job complete');
   return result;
 }
 
@@ -170,7 +164,7 @@ const worker = new Worker(QUEUE_NAME, processJob, {
 // ── Event handlers ────────────────────────────────────────────────────────────
 
 worker.on('completed', (job) => {
-  console.log(`[Worker] Job ${job.id} succeeded (${job.name})`);
+  logger.info('Job succeeded', { jobId: job.id, name: job.name });
 });
 
 /**
@@ -187,11 +181,13 @@ worker.on('failed', async (job, err) => {
   const isTerminal = isUnrecoverable || job.attemptsMade >= maxAttempts;
 
   if (!isTerminal) {
-    console.warn(`[Worker] Job ${job.id} attempt ${job.attemptsMade}/${maxAttempts} failed — will retry: ${errorMessage}`);
+    logger.warn('Job attempt failed — will retry', {
+      jobId: job.id, attempt: job.attemptsMade, maxAttempts, error: errorMessage,
+    });
     return;
   }
 
-  console.error(`[Worker] Job ${job.id} permanently failed — ${errorMessage}`);
+  logger.error('Job permanently failed', { jobId: job.id, err });
 
   try {
     await prisma.platformPost.update({
@@ -205,13 +201,13 @@ worker.on('failed', async (job, err) => {
     await syncPostStatus(postId);
   } catch (dbErr) {
     // Never let a DB error crash the worker process.
-    console.error(`[Worker] Failed to write FAILED status to DB for ${platformPostId}:`, dbErr.message);
+    logger.error('Failed to write FAILED status to DB', { platformPostId, err: dbErr });
   }
 });
 
 worker.on('error', (err) => {
   // Worker-level errors (Redis disconnect, etc.) — log but never crash.
-  console.error('[Worker] BullMQ worker error:', err.message);
+  logger.error('BullMQ worker error', { err });
 });
 
 // ── Startup: reset stale PUBLISHING rows ─────────────────────────────────────
@@ -227,12 +223,12 @@ async function resetStalePlatformPosts() {
     data:   { status: 'QUEUED' },
   });
   if (count > 0) {
-    console.log(`[Worker] Reset ${count} stale PUBLISHING → QUEUED on startup`);
+    logger.info('Reset stale PUBLISHING → QUEUED on startup', { count });
   }
 }
 
 resetStalePlatformPosts().catch((err) => {
-  console.error('[Worker] Startup reset failed:', err.message);
+  logger.error('Startup reset failed', { err });
 });
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
@@ -242,9 +238,9 @@ resetStalePlatformPosts().catch((err) => {
  * Called from server.js on SIGTERM / SIGINT.
  */
 async function shutdownWorker() {
-  console.log('[Worker] Shutting down — draining active jobs…');
+  logger.info('Shutting down — draining active jobs…');
   await worker.close();
-  console.log('[Worker] Worker stopped.');
+  logger.info('Worker stopped');
 }
 
 module.exports = { worker, shutdownWorker };

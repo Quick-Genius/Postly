@@ -58,13 +58,17 @@ const CONFIRM_CHOICES = [
 const PLATFORM_LIST = [
   { label: '🐦 Twitter',   value: 'twitter'   },
   { label: '💼 LinkedIn',  value: 'linkedin'  },
-  { label: '📸 Instagram', value: 'instagram' },
-  { label: '🧵 Threads',   value: 'threads'   },
-  { label: '👥 Facebook',  value: 'facebook'  },
+  // { label: '📸 Instagram', value: 'instagram' },
+  // { label: '🧵 Threads',   value: 'threads'   },
+  // { label: '👥 Facebook',  value: 'facebook'  },
 ];
 
 const PLATFORM_EMOJIS = {
-  twitter: '🐦', linkedin: '💼', instagram: '📸', threads: '🧵', facebook: '👥',
+  twitter: '🐦',
+  linkedin: '💼',
+  // instagram: '📸',
+  // threads: '🧵',
+  // facebook: '👥',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

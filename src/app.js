@@ -17,6 +17,7 @@ const { getPrivacyPolicy, getTerms } = require('./controllers/legal.controller')
 const { attachUserIfPresent } = require('./middlewares/auth.middleware');
 const { rateLimit } = require('./middlewares/rateLimit.middleware');
 const { notFoundHandler, errorHandler } = require('./middlewares/error.middleware');
+const httpLogger = require('./utils/logger').child('HTTP');
 
 const app = express();
 
@@ -29,7 +30,12 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 if (!env.isTest) {
-  app.use(morgan(env.isProd ? 'combined' : 'dev'));
+  // Pipe morgan through the structured logger so access lines share format/sink.
+  // Skip /health to keep UptimeRobot pings out of the regular log stream.
+  app.use(morgan(env.isProd ? 'combined' : 'dev', {
+    stream: { write: (line) => httpLogger.info(line.trim()) },
+    skip:   (req) => req.path === '/health' || req.path === '/',
+  }));
 }
 
 app.use('/health', healthRouter);

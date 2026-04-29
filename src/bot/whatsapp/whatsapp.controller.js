@@ -24,6 +24,7 @@
 const twilio          = require('twilio');
 const env             = require('../../config/env');
 const whatsappService = require('./whatsapp.service');
+const logger          = require('../../utils/logger').child('WhatsApp');
 
 const { MessagingResponse } = twilio.twiml;
 
@@ -54,12 +55,17 @@ function twimlReply(message) {
 
 async function handle(req, res) {
   if (!isValidTwilioRequest(req)) {
+    logger.warn('Rejected request — invalid Twilio signature', {
+      ip: req.ip,
+      url: `${env.appUrl}/api/bot/whatsapp`,
+    });
     return res.status(403).send('Forbidden');
   }
 
   const { From, Body } = req.body ?? {};
 
   if (!From || !Body) {
+    logger.warn('Bad request — missing From or Body', { hasFrom: Boolean(From), hasBody: Boolean(Body) });
     return res.status(400).send('Bad Request');
   }
 
@@ -67,11 +73,15 @@ async function handle(req, res) {
   const from = From.replace(/^whatsapp:/i, '').trim();
   const body = Body.trim();
 
+  const reqLog = logger.child('handle', { from, bodyPreview: body.slice(0, 80) });
+  reqLog.debug('Inbound message received');
+
   try {
     const replyText = await whatsappService.handleWebhook({ from, body });
+    reqLog.debug('Replying', { replyLength: replyText?.length ?? 0 });
     return res.type('text/xml').send(twimlReply(replyText));
   } catch (err) {
-    console.error('[WhatsApp] Unhandled error:', err.message ?? err);
+    reqLog.error('Unhandled error in webhook handler', { err });
     return res.type('text/xml').send(
       twimlReply('⚠️ Something went wrong. Send "start" to try again.'),
     );

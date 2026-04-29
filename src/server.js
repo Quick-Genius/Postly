@@ -1,18 +1,24 @@
-const app = require('./app');
-const env = require('./config/env');
+'use strict';
+
+const app    = require('./app');
+const env    = require('./config/env');
 const prisma = require('./config/prisma');
 const { redis, connectRedis } = require('./config/redis');
-const { shutdownWorker } = require('./queue/worker');
+const { shutdownWorker }      = require('./queue/worker');
 const { startScheduler, stopScheduler } = require('./queue/scheduler');
+const logger = require('./utils/logger').child('server');
+
+const SHUTDOWN_TIMEOUT_MS = 15_000;
+const STEP_TIMEOUT_MS     = 5_000;
 
 async function verifyConnections() {
-  console.log('[startup] Verifying database connection...');
+  logger.info('Verifying database connection…');
   await prisma.$queryRaw`SELECT 1`;
-  console.log('[startup] Database connection OK');
+  logger.info('Database connection OK');
 
-  console.log('[startup] Verifying Redis connection...');
+  logger.info('Verifying Redis connection…');
   await connectRedis();
-  console.log('[startup] Redis connection OK');
+  logger.info('Redis connection OK');
 }
 
 function reportAiProviders() {
@@ -24,14 +30,33 @@ function reportAiProviders() {
   const enabled = Object.entries(available).filter(([, v]) => v).map(([k]) => k);
 
   if (enabled.length === 0) {
-    console.warn('[startup] No system AI provider keys configured — generation will only work for users who supply their own keys.');
+    logger.warn('No system AI provider keys configured — generation will only work for users who supply their own keys');
     return;
   }
 
-  console.log(`[startup] AI providers available: ${enabled.join(', ')}`);
+  logger.info('AI providers available', { providers: enabled });
 
   if (enabled.length === 1 && enabled[0] === 'groq') {
-    console.warn('[startup] Only the Groq fallback is configured — primary providers (OpenAI, Anthropic) are unavailable.');
+    logger.warn('Only the Groq fallback is configured — primary providers (OpenAI, Anthropic) are unavailable');
+  }
+}
+
+/**
+ * Wraps a shutdown step with a per-step timeout so a single hung resource
+ * doesn't block the entire shutdown sequence past SHUTDOWN_TIMEOUT_MS.
+ */
+async function runStep(name, fn) {
+  const start = Date.now();
+  try {
+    await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`step "${name}" timed out`)), STEP_TIMEOUT_MS),
+      ),
+    ]);
+    logger.info(`Shutdown step OK: ${name}`, { durationMs: Date.now() - start });
+  } catch (err) {
+    logger.error(`Shutdown step failed: ${name}`, { err, durationMs: Date.now() - start });
   }
 }
 
@@ -39,40 +64,54 @@ async function start() {
   try {
     await verifyConnections();
   } catch (err) {
-    console.error('[startup] Connection verification failed:', err.message);
+    logger.error('Connection verification failed during startup', { err });
     process.exit(1);
   }
 
   // Bind to 0.0.0.0 so Render's port scanner can detect the open port.
-  // Without an explicit host, Node may bind to ::1/127.0.0.1 only on some setups.
   const server = app.listen(env.port, '0.0.0.0', () => {
-    console.log(`[startup] Postly API listening on port ${env.port} (${env.nodeEnv})`);
-    console.log(`[startup] Base URL: ${env.baseUrl}`);
+    logger.info(`Postly API listening on port ${env.port} (${env.nodeEnv})`);
+    logger.info(`Base URL: ${env.baseUrl}`);
     reportAiProviders();
     startScheduler();
   });
 
-  // shutdown is defined here so it closes over `server` via the function scope.
+  // Idempotent shutdown — multiple SIGTERMs cannot trigger overlapping cleanups.
+  let shuttingDown = false;
   async function shutdown(signal) {
-    console.log(`${signal} received — shutting down gracefully`);
+    if (shuttingDown) {
+      logger.warn(`${signal} received during shutdown — ignoring`);
+      return;
+    }
+    shuttingDown = true;
 
-    server.close(async () => {
-      try { stopScheduler(); }            catch (err) { console.error('Scheduler stop error:', err.message); }
-      try { await shutdownWorker(); }     catch (err) { console.error('Worker shutdown error:', err.message); }
-      try { await prisma.$disconnect(); } catch (err) { console.error('Prisma disconnect error:', err.message); }
-      try {
-        if (redis.isOpen) await redis.quit();
-      } catch (err) {
-        console.error('Redis disconnect error:', err.message);
-      }
-      process.exit(0);
+    logger.info(`${signal} received — shutting down gracefully`);
+
+    // Hard cap: if shutdown takes too long, kill the process.
+    const forceTimer = setTimeout(() => {
+      logger.error(`Forced shutdown after ${SHUTDOWN_TIMEOUT_MS}ms timeout`);
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+    forceTimer.unref();
+
+    // Stop accepting new HTTP connections first; in-flight requests get up to STEP_TIMEOUT_MS.
+    await runStep('http server close', () => new Promise((resolve) => server.close(() => resolve())));
+
+    // Stop the scheduler so no new jobs are enqueued during cleanup.
+    await runStep('scheduler stop', () => stopScheduler());
+
+    // Drain BullMQ workers (waits for active jobs to finish).
+    await runStep('worker drain', () => shutdownWorker());
+
+    // Close DB and Redis connections last — they may still be in use until workers drain.
+    await runStep('prisma disconnect', () => prisma.$disconnect());
+    await runStep('redis disconnect',  async () => {
+      if (redis.isOpen) await redis.quit();
     });
 
-    // Force exit if connections don't drain in time.
-    setTimeout(() => {
-      console.error('Forced shutdown after 10s timeout');
-      process.exit(1);
-    }, 10_000).unref();
+    clearTimeout(forceTimer);
+    logger.info('Shutdown complete — exiting');
+    process.exit(0);
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -82,12 +121,13 @@ async function start() {
 // These two handlers must be registered before start() so they catch errors
 // that occur during the async startup phase as well as at runtime.
 process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled promise rejection:', reason);
+  logger.error('Unhandled promise rejection', { err: reason });
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught exception:', err);
-  process.exit(1);
+  logger.error('Uncaught exception — exiting', { err });
+  // Give the logger one tick to flush before exiting.
+  setImmediate(() => process.exit(1));
 });
 
 start();

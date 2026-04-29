@@ -26,6 +26,7 @@ const { generateWithGroq }      = require('./groq.service');
 const { resolveAiKeys }         = require('./user.service');
 const { enforce: enforcePlatformRules, validateAiShape } = require('../utils/platformRules');
 const env                       = require('../config/env');
+const logger                    = require('../utils/logger').child('ContentService');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ function formatGeneratedContent(raw, platforms) {
     });
 
     if (enforced.warnings.length > 0) {
-      console.warn(`[content] ${platform} rule warnings:`, enforced.warnings.join('; '));
+      logger.warn('Platform rule warnings', { platform, warnings: enforced.warnings.join('; ') });
     }
 
     switch (platform) {
@@ -328,10 +329,10 @@ async function runFallbackChain({ prompt, platforms, model, userKeys }) {
           return { result, generated };
         }
         // JSON invalid → retry the same provider once, then break to next
-        console.warn(`[content] ${attempt.label} returned invalid JSON (attempt ${tryNum})`);
+        logger.warn('AI provider returned invalid JSON', { provider: attempt.label, attempt: tryNum });
       } catch (err) {
         // Log without leaking key material; provider services already strip secrets.
-        console.warn(`[content] ${attempt.label} failed: ${err.message}`);
+        logger.warn('AI provider call failed', { provider: attempt.label, error: err.message });
         lastError = err;
         break;  // move to next provider — do not retry on transport/auth errors
       }
@@ -362,7 +363,7 @@ function tryParseAndFormat(raw, platforms) {
   // Schema validation: require a block per requested platform with non-empty content.
   const shape = validateAiShape(parsed, platforms);
   if (!shape.valid) {
-    console.warn(`[content] AI output failed shape validation: ${shape.reason}`);
+    logger.warn('AI output failed shape validation', { reason: shape.reason });
     return null;
   }
 

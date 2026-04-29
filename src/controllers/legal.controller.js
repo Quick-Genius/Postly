@@ -158,7 +158,7 @@ function getTerms(req, res) {
     <h2>6. Contact</h2>
     <p>
       Questions can be sent to
-      <a href="singhharshgood@gmail.com">singhharshgood@gmail.com</a>.
+      <a href="mailto:singhharshgood@gmail.com">singhharshgood@gmail.com</a>.
     </p>
   `;
   res.type('html').send(page('Terms of Service', body));

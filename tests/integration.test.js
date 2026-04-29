@@ -91,12 +91,16 @@ describe('Full user flow: register → login → publish → fetch post', () => 
       registeredUser = {
         id:           'integration-user-1',
         email:        data.email,
-        passwordHash: data.passwordHash,   // real bcrypt hash
+        passwordHash: data.passwordHash,   // kept for login step (bcrypt compare)
         name:         data.name,
         createdAt:    new Date().toISOString(),
         updatedAt:    new Date().toISOString(),
       };
-      return registeredUser;
+      // Prisma's select clause in register() returns only id, email, name, createdAt.
+      // The mock must match that behaviour — passwordHash must NOT appear in the
+      // returned object even though we save it to `registeredUser` for step 2 (login).
+      const { passwordHash: _pw, updatedAt: _ua, ...selected } = registeredUser;
+      return selected;
     });
 
     prismaMock.refreshToken.create.mockImplementation(async ({ data }) => {
@@ -111,15 +115,15 @@ describe('Full user flow: register → login → publish → fetch post', () => 
     expect(res.status).toBe(201);
 
     // Both tokens must be present
-    expect(res.body.data).toHaveProperty('access_token');
-    expect(res.body.data).toHaveProperty('refresh_token');
+    expect(res.body).toHaveProperty('access_token');
+    expect(res.body).toHaveProperty('refresh_token');
 
     // User object — no password material
-    expect(res.body.data.user).toMatchObject({ email: EMAIL, name: 'Integration Tester' });
-    expect(res.body.data.user).not.toHaveProperty('passwordHash');
+    expect(res.body.user).toMatchObject({ email: EMAIL, name: 'Integration Tester' });
+    expect(res.body.user).not.toHaveProperty('passwordHash');
 
-    accessToken  = res.body.data.access_token;
-    refreshToken = res.body.data.refresh_token;
+    accessToken  = res.body.access_token;
+    refreshToken = res.body.refresh_token;
 
     expect(accessToken).toBeTruthy();
     expect(refreshToken).toBeTruthy();

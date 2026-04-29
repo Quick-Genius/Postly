@@ -13,7 +13,12 @@ redis.on('error', (err) => {
 let connectPromise = null;
 async function connectRedis() {
   if (redis.isOpen) return redis;
-  if (!connectPromise) connectPromise = redis.connect();
+  if (!connectPromise) {
+    connectPromise = redis.connect().catch((err) => {
+      connectPromise = null; // allow retry on next call
+      throw err;
+    });
+  }
   await connectPromise;
   return redis;
 }
