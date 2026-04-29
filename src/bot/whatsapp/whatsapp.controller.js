@@ -63,24 +63,46 @@ async function handle(req, res) {
       return res.status(403).send('Forbidden');
     }
 
-    const { From, Body } = req.body ?? {};
-    if (!From || Body == null) {
-      logger.warn('Bad request — missing From or Body', { hasFrom: Boolean(From), hasBody: Body != null });
+    const { From, Body, ButtonText, ListTitle, ButtonPayload } = req.body ?? {};
+    const hasUserInput = Body != null || ButtonText != null || ListTitle != null || ButtonPayload != null;
+    if (!From || !hasUserInput) {
+      logger.warn('Bad request — missing From or message payload', {
+        hasFrom: Boolean(From),
+        hasBody: Body != null,
+        hasButtonText: ButtonText != null,
+        hasListTitle: ListTitle != null,
+        hasButtonPayload: ButtonPayload != null,
+      });
       return res.status(400).send('Bad Request');
     }
 
     // Normalize aggressively so numeric/typed payloads still work.
     const from = String(From).replace(/^whatsapp:/i, '').trim();
-    const body = String(Body).trim();
+    const body = String(Body ?? '').trim();
+    const buttonText = String(ButtonText ?? '').trim();
+    const listTitle = String(ListTitle ?? '').trim();
+    const buttonPayload = String(ButtonPayload ?? '').trim();
 
     const reqLog = logger.child('handle', {
       from,
       bodyType: typeof Body,
       bodyPreview: body.slice(0, 80),
+      buttonText,
+      listTitle,
+      hasButtonPayload: Boolean(buttonPayload),
     });
     reqLog.info('Inbound WhatsApp webhook message');
 
-    const replyText = await whatsappService.handleWebhook({ from, body });
+    const replyText = await whatsappService.handleWebhook({
+      from,
+      body,
+      inbound: {
+        Body: body,
+        ButtonText: buttonText,
+        ListTitle: listTitle,
+        ButtonPayload: buttonPayload,
+      },
+    });
     reqLog.info('Replying to WhatsApp webhook', { replyLength: replyText?.length ?? 0 });
     return res.type('text/xml').send(twimlReply(replyText));
   } catch (err) {

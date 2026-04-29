@@ -38,6 +38,27 @@ const { syncPostStatus }  = require('../services/publish.service');
 const { QUEUE_NAME, redisConnection } = require('./queue');
 const logger              = require('../utils/logger').child('Worker');
 
+function extractLinkedInUrn(value) {
+  if (!value || typeof value !== 'string') return null;
+  const match = value.match(/urn:li:[a-zA-Z]+:\d+/);
+  return match ? match[0] : null;
+}
+
+function buildLinkedInPostUrl(result = {}) {
+  const urnFromId = extractLinkedInUrn(result.post_id || result.postId || result.id);
+  const urnFromUrl = extractLinkedInUrn(result.published_url || result.url);
+  const urn = urnFromId || urnFromUrl;
+  if (!urn) return null;
+  return `https://www.linkedin.com/feed/update/${urn}/`;
+}
+
+function normalizePublishedUrl(platform, result = {}) {
+  if (platform === 'LINKEDIN') {
+    return buildLinkedInPostUrl(result) || result.published_url || null;
+  }
+  return result.published_url || null;
+}
+
 // ── Platform API adapters ─────────────────────────────────────────────────────
 // Each adapter receives { accessToken, content, platform } and throws on failure.
 // Replace the mock implementations with real SDK calls per platform.
@@ -52,7 +73,7 @@ const platformAdapters = {
   async LINKEDIN({ accessToken, content }) {
     logger.info('Publishing to LinkedIn', { preview: content.slice(0, 60) });
     await new Promise((r) => setTimeout(r, 200));
-    return { published_url: `https://www.linkedin.com/feed/update/urn:li:share:${Date.now()}` };
+    return { post_id: `urn:li:ugcPost:${Date.now()}` };
   },
 
   async INSTAGRAM({ accessToken, content }) {
@@ -138,11 +159,13 @@ async function processJob(job) {
   const result = await adapter({ accessToken, content: platformPost.content, platform });
 
   // ── Step 6: Mark as PUBLISHED ─────────────────────────────────────────────
+  const publishedUrl = normalizePublishedUrl(platform, result);
   await prisma.platformPost.update({
     where: { id: platformPostId },
     data: {
       status:      'PUBLISHED',
       publishedAt: new Date(),
+      publishedUrl,
       errorMessage: null,
     },
   });

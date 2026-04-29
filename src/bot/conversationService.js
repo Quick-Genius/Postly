@@ -130,10 +130,31 @@ const cmdPrefix = (platform) => (platform === 'telegram' ? '/' : '');
 async function handleCommand({ command, args, platform, chatId, session }) {
   const userId = session?.userId ?? null;
   const pfx    = cmdPrefix(platform);
-
   switch (command) {
     // ── start ─────────────────────────────────────────────────────────────────
     case 'start': {
+      // restart behaves like start after wiping in-progress flow state
+      // while preserving the linked user.
+      const resetBase = botSession.blankFlow(userId);
+
+      if (!userId) {
+        return reply(
+          `👋 Welcome to Postly!\n\n` +
+          `Link your account to get started:\n${pfx}link <your_api_token>\n\n` +
+          `Get your token from the Postly web app → Settings → API Token.`,
+          null, null, session,
+        );
+      }
+      const newSess = { ...resetBase, state: 'SELECT_TYPE', pendingChoices: TYPE_CHOICES };
+      await botSession.setSession(platform, chatId, newSess);
+      return reply(
+        '✨ Let\'s create a post!\n\nWhat type of content is this?',
+        TYPE_CHOICES, 'type', newSess,
+      );
+    }
+
+    // ── restart ───────────────────────────────────────────────────────────────
+    case 'restart': {
       if (!userId) {
         return reply(
           `👋 Welcome to Postly!\n\n` +
@@ -145,8 +166,18 @@ async function handleCommand({ command, args, platform, chatId, session }) {
       const newSess = { ...botSession.blankFlow(userId), state: 'SELECT_TYPE', pendingChoices: TYPE_CHOICES };
       await botSession.setSession(platform, chatId, newSess);
       return reply(
-        '✨ Let\'s create a post!\n\nWhat type of content is this?',
+        '🔁 Flow restarted.\n\nWhat type of content is this?',
         TYPE_CHOICES, 'type', newSess,
+      );
+    }
+
+    // ── end ───────────────────────────────────────────────────────────────────
+    case 'end': {
+      const newSess = { ...botSession.blankFlow(userId), state: 'ENDED' };
+      await botSession.setSession(platform, chatId, newSess);
+      return reply(
+        `🛑 Conversation ended.\n\nSend ${pfx}restart to begin again.`,
+        null, null, newSess,
       );
     }
 
@@ -185,7 +216,11 @@ async function handleCommand({ command, args, platform, chatId, session }) {
         const lines = posts.map((p, i) => {
           const idea = p.idea.length > 45 ? `${p.idea.slice(0, 45)}…` : p.idea;
           const platforms = p.platformPosts
-            .map((pp) => `  ${PLATFORM_EMOJIS[pp.platform.toLowerCase()] ?? '📱'} ${pp.platform}: ${pp.status}`)
+            .map((pp) => {
+              const base = `  ${PLATFORM_EMOJIS[pp.platform.toLowerCase()] ?? '📱'} ${pp.platform}: ${pp.status}`;
+              if (pp.publishedUrl) return `${base}\n    🔗 ${pp.publishedUrl}`;
+              return base;
+            })
             .join('\n');
           return `${i + 1}. [${p.status}] ${idea}\n${platforms}`;
         });
@@ -213,6 +248,8 @@ async function handleCommand({ command, args, platform, chatId, session }) {
       return reply(
         `📖 Postly Bot — Commands\n\n` +
         `${pfx}start — Create a new post\n` +
+        `${pfx}restart — Restart from the first prompt\n` +
+        `${pfx}end — End the current conversation\n` +
         `${pfx}status — View last 5 posts\n` +
         `${pfx}accounts — View connected social accounts\n` +
         `${pfx}link <token> — Link your account\n` +
@@ -245,6 +282,14 @@ async function processMessage({ platform, chatId, session, action, text }) {
   if (state === 'IDLE') {
     return reply(
       `Send ${cmdPrefix(platform)}start to create a post, or ${cmdPrefix(platform)}help for commands.`,
+      null, null, session,
+    );
+  }
+
+  // ── ENDED ───────────────────────────────────────────────────────────────────
+  if (state === 'ENDED') {
+    return reply(
+      `Conversation is ended. Send ${cmdPrefix(platform)}restart to start again.`,
       null, null, session,
     );
   }
@@ -295,16 +340,20 @@ async function processMessage({ platform, chatId, session, action, text }) {
       return reply('Please select a valid platform option.', choices, 'platform', session);
     }
 
-    // Toggle
+    // WhatsApp quick-reply taps can be duplicated by clients/retries.
+    // Keep WhatsApp idempotent; preserve toggle UX for Telegram buttons.
     const current  = session.platforms ?? [];
-    const updated  = current.includes(value)
-      ? current.filter((p) => p !== value)
-      : [...current, value];
+    const alreadySelected = current.includes(value);
+    const updated  = platform === 'whatsapp'
+      ? (alreadySelected ? current : [...current, value])
+      : (alreadySelected ? current.filter((p) => p !== value) : [...current, value]);
     const choices  = buildPlatformChoices(updated);
     const newSess  = { ...session, platforms: updated, pendingChoices: choices };
     await botSession.setSession(platform, chatId, newSess);
     log.info('Platform selection updated', { selectedPlatforms: updated });
-    const toggleMsg = updated.includes(value) ? `${value} added ✓` : `${value} removed`;
+    const toggleMsg = platform === 'whatsapp'
+      ? (alreadySelected ? `${value} already selected` : `${value} added ✓`)
+      : (updated.includes(value) ? `${value} added ✓` : `${value} removed`);
     return reply(toggleMsg, choices, 'platform', newSess);
   }
 
@@ -439,7 +488,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
           .join('\n');
 
         return reply(
-          `🚀 Post queued!\n\n${platformLines}\n\nSend ${cmdPrefix(platform)}status to track progress.`,
+          `🚀 Post queued!\n\n${platformLines}\n\nSend ${cmdPrefix(platform)}status to track progress and view published links.`,
           null, null, newSess,
         );
       } catch (err) {

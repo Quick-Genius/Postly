@@ -147,6 +147,7 @@ model PlatformPost {
   content      String             @db.Text
   status       PlatformPostStatus @default(PENDING)
   publishedAt  DateTime?          @map("published_at")
+  publishedUrl String?            @map("published_url") @db.Text
   errorMessage String?            @map("error_message") @db.Text
   attempts     Int                @default(0)
 

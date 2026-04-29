@@ -16,6 +16,13 @@ const isWhatsappRequest = (req) => {
   return typeof from === 'string' && from.toLowerCase().startsWith('whatsapp:');
 };
 
+function isValidTwilioRequest(req) {
+  if (!env.twilioAuthToken) return true;
+  const signature = req.get('x-twilio-signature') || '';
+  const url = `${env.appUrl}/webhook`;
+  return twilio.validateRequest(env.twilioAuthToken, signature, url, req.body);
+}
+
 function twimlReply(message) {
   const response = new MessagingResponse();
   response.message(message);
@@ -27,17 +34,38 @@ router.post('/webhook', async (req, res, next) => {
 
   try {
     if (isWhatsappRequest(req)) {
+      if (!isValidTwilioRequest(req)) {
+        logger.warn('Rejected WhatsApp webhook: invalid Twilio signature', { userAgent });
+        return res.status(403).send('Forbidden');
+      }
+
       const from = String(req.body.From).replace(/^whatsapp:/i, '').trim();
       const body = String(req.body.Body ?? '').trim();
+      const buttonText = String(req.body.ButtonText ?? '').trim();
+      const listTitle = String(req.body.ListTitle ?? '').trim();
+      const buttonPayload = String(req.body.ButtonPayload ?? '').trim();
 
       logger.info('Webhook source detected: WhatsApp', {
         from,
         userAgent,
         bodyPreview: body.slice(0, 120),
+        buttonText,
+        listTitle,
+        hasButtonPayload: Boolean(buttonPayload),
       });
 
-      const replyText = body
-        ? await whatsappService.handleWebhook({ from, body })
+      const hasUserInput = Boolean(body || buttonText || listTitle || buttonPayload);
+      const replyText = hasUserInput
+        ? await whatsappService.handleWebhook({
+          from,
+          body,
+          inbound: {
+            Body: body,
+            ButtonText: buttonText,
+            ListTitle: listTitle,
+            ButtonPayload: buttonPayload,
+          },
+        })
         : 'Please send a message to continue.';
 
       return res.status(200).type('text/xml').send(twimlReply(replyText));

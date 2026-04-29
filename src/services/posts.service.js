@@ -162,7 +162,14 @@ async function listPosts(userId, query) {
       orderBy:  { createdAt: 'desc' },
       include: {
         platformPosts: {
-          select: { id: true, platform: true, status: true, publishedAt: true, attempts: true },
+          select: {
+            id: true,
+            platform: true,
+            status: true,
+            publishedAt: true,
+            publishedUrl: true,
+            attempts: true,
+          },
         },
       },
     }),
@@ -185,6 +192,7 @@ async function getPost(userId, postId) {
           content:      true,
           status:       true,
           publishedAt:  true,
+          publishedUrl: true,
           errorMessage: true,
           attempts:     true,
         },
@@ -334,6 +342,7 @@ async function getPostAnalytics(userId, postId) {
     platforms: post.platformPosts.map((pp) => ({
       platform:   pp.platform.toLowerCase(),
       status:     pp.status.toLowerCase(),
+      published_url: pp.publishedUrl,
       engagement: pp.status === 'PUBLISHED' ? mockEngagement() : null,
     })),
   };

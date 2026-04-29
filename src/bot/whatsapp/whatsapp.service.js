@@ -6,15 +6,16 @@
  * Responsibilities:
  *  1. Parse a raw Twilio message body into the normalized input shape that
  *     conversationService expects.
- *  2. Map user's number/text replies to structured action values using the
+ *  2. Map user's button/list/text replies to structured action values using the
  *     session's pendingChoices list (set by conversationService on every step).
  *  3. Call conversationService.handleCommand or conversationService.processMessage.
- *  4. Format the returned { replyText, options } into a single plain-text string
- *     suitable for WhatsApp (numbered list instead of inline buttons).
+ *  4. Format the returned { replyText, options } into a WhatsApp-friendly
+ *     text fallback for clients/channels where interactive UI isn't available.
  *
  * WhatsApp UX rules:
- *  - No inline keyboards. All choices are presented as a numbered list.
- *  - User replies with a number ("1", "2", …) to select an option.
+ *  - Twilio interactive taps are parsed via ButtonPayload/ButtonText/ListTitle.
+ *  - Text fallback remains available for clients without interactive support.
+ *  - Legacy numeric input remains supported for backward compatibility.
  *  - User types free text only during the AWAIT_IDEA state.
  *  - Commands are sent without a "/" prefix (e.g. "start", "help").
  */
@@ -27,11 +28,39 @@ const PLATFORM = 'whatsapp';
 
 // ── Command aliases (WhatsApp users don't type "/") ───────────────────────────
 
-const COMMANDS = new Set(['start', 'status', 'accounts', 'help']);
+const COMMANDS = new Set(['start', 'restart', 'end', 'status', 'accounts', 'help']);
 const PLATFORM_ACTION_BY_NUMBER = {
   '1': 'platform:twitter',
   '2': 'platform:linkedin',
   '3': 'platform:done',
+};
+const TYPE_ACTION_BY_NUMBER = {
+  '1': 'type:announcement',
+  '2': 'type:thread',
+  '3': 'type:story',
+  '4': 'type:promotional',
+  '5': 'type:educational',
+  '6': 'type:opinion',
+};
+const FINAL_ACTION_BY_NUMBER = {
+  '1': 'action:post_now',
+  '2': 'action:edit_idea',
+  '3': 'action:cancel',
+};
+
+const DIRECT_ACTION_BY_TEXT = {
+  announcement: 'type:announcement',
+  thread: 'type:thread',
+  story: 'type:story',
+  promotional: 'type:promotional',
+  educational: 'type:educational',
+  opinion: 'type:opinion',
+  twitter: 'platform:twitter',
+  linkedin: 'platform:linkedin',
+  done: 'platform:done',
+  'post now': 'action:post_now',
+  'edit idea': 'action:edit_idea',
+  cancel: 'action:cancel',
 };
 
 const normalizeState = (state) => {
@@ -45,6 +74,43 @@ const normalizeState = (state) => {
   }
 };
 
+const stripDecorations = (value) => String(value ?? '')
+  .toLowerCase()
+  .replace(/[\u{1F300}-\u{1FAFF}]/gu, '') // emoji blocks
+  .replace(/[^\p{L}\p{N}\s:]/gu, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+function actionFromDirectText(cleanedText) {
+  if (!cleanedText) return null;
+  if (DIRECT_ACTION_BY_TEXT[cleanedText]) return DIRECT_ACTION_BY_TEXT[cleanedText];
+  for (const [key, action] of Object.entries(DIRECT_ACTION_BY_TEXT)) {
+    if (cleanedText.startsWith(key)) return action;
+  }
+  return null;
+}
+
+function actionFromPendingChoices(cleanedText, choices = []) {
+  if (!cleanedText || !Array.isArray(choices)) return null;
+  const match = choices.find((choice) => {
+    const choiceText = stripDecorations(choice?.label || '');
+    return choiceText === cleanedText || cleanedText.startsWith(choiceText);
+  });
+  return match?.value || null;
+}
+
+function extractInboundSelection(inbound = {}) {
+  const buttonPayload = String(inbound.buttonPayload ?? inbound.ButtonPayload ?? '').trim();
+  const buttonText    = String(inbound.buttonText ?? inbound.ButtonText ?? '').trim();
+  const listTitle     = String(inbound.listTitle ?? inbound.ListTitle ?? '').trim();
+  const body          = String(inbound.body ?? inbound.Body ?? '').trim();
+
+  if (buttonPayload) return { selectedText: buttonPayload, source: 'ButtonPayload' };
+  if (buttonText) return { selectedText: buttonText, source: 'ButtonText' };
+  if (listTitle) return { selectedText: listTitle, source: 'ListTitle' };
+  return { selectedText: body, source: 'Body' };
+}
+
 // ── Input parser ──────────────────────────────────────────────────────────────
 
 /**
@@ -57,10 +123,15 @@ const normalizeState = (state) => {
  *  4. Free text → forwarded only in AWAIT_IDEA state
  *  5. Anything else → { action: null, text: body } (service returns a helpful error)
  */
-function parseInput(body, session) {
-  const raw   = String(body ?? '').trim();
+function parseInput(rawInput, session) {
+  const raw   = String(rawInput ?? '').trim();
   const lower = raw.toLowerCase();
   const state = normalizeState(session?.state ?? 'IDLE');
+  const cleaned = stripDecorations(raw);
+
+  if (!raw) {
+    return { command: null, args: null, action: null, text: '' };
+  }
 
   // ── Commands ──────────────────────────────────────────────────────────────
   if (COMMANDS.has(lower)) {
@@ -75,6 +146,20 @@ function parseInput(body, session) {
     return { command: null, args: null, action: null, text: raw };
   }
 
+  if (raw.includes(':') && /^([a-z_]+:[a-z0-9_]+)$/i.test(raw)) {
+    return { command: null, args: null, action: raw.toLowerCase(), text: null };
+  }
+
+  const directAction = actionFromDirectText(cleaned);
+  if (directAction) {
+    return { command: null, args: null, action: directAction, text: null };
+  }
+
+  const pendingAction = actionFromPendingChoices(cleaned, session?.pendingChoices);
+  if (pendingAction) {
+    return { command: null, args: null, action: pendingAction, text: null };
+  }
+
   // ── "done" shorthand for platform confirmation ────────────────────────────
   if (state === 'SELECT_PLATFORMS' && lower === 'done') {
     return { command: null, args: null, action: 'platform:done', text: null };
@@ -84,6 +169,14 @@ function parseInput(body, session) {
   // 1 => twitter, 2 => linkedin, 3 => done
   if (state === 'SELECT_PLATFORMS' && PLATFORM_ACTION_BY_NUMBER[raw]) {
     return { command: null, args: null, action: PLATFORM_ACTION_BY_NUMBER[raw], text: null };
+  }
+
+  // Backward compatibility: old numeric menus
+  if (state === 'SELECT_TYPE' && TYPE_ACTION_BY_NUMBER[raw]) {
+    return { command: null, args: null, action: TYPE_ACTION_BY_NUMBER[raw], text: null };
+  }
+  if (state === 'PREVIEW' && FINAL_ACTION_BY_NUMBER[raw]) {
+    return { command: null, args: null, action: FINAL_ACTION_BY_NUMBER[raw], text: null };
   }
 
   // ── Number → pendingChoices lookup ────────────────────────────────────────
@@ -112,12 +205,15 @@ function parseInput(body, session) {
  *   ...
  *   6. ✓ Done (1 selected)
  *
- *   Reply with a number to choose.
+ *   Tap a button/list option or type the option name.
  */
 function formatReply(replyText, options) {
   if (!options?.length) return replyText;
-  const lines = options.map((opt, i) => `${i + 1}. ${opt.label}`);
-  return `${replyText}\n\n${lines.join('\n')}\n\nReply with a number to choose.`;
+  const lines = options.map((opt) => `• ${opt.label}`);
+  const prompt = options.length <= 3
+    ? 'Tap a button (or type the option name).'
+    : 'Open the list and pick an option (or type the option name).';
+  return `${replyText}\n\n${lines.join('\n')}\n\n${prompt}`;
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
@@ -125,12 +221,12 @@ function formatReply(replyText, options) {
 /**
  * Processes one inbound WhatsApp message end-to-end.
  *
- * @param {{ from: string, body: string }} params
+ * @param {{ from: string, body?: string, inbound?: object }} params
  *   from — normalised phone number (Twilio's "From" with "whatsapp:" stripped)
  *   body — message text
  * @returns {Promise<string>} The text to send back to the user.
  */
-async function handleWebhook({ from, body }) {
+async function handleWebhook({ from, body, inbound = {} }) {
   const log = logger.child('handleWebhook', { from });
   try {
     const session = (await botSession.getSession(PLATFORM, from)) ?? botSession.blankFlow(null);
@@ -139,13 +235,17 @@ async function handleWebhook({ from, body }) {
       await botSession.setSession(PLATFORM, from, normalizedSession);
     }
 
+    const incoming = { body, ...inbound };
+    const { selectedText, source } = extractInboundSelection(incoming);
+
     log.info('Incoming WhatsApp message', {
-      body,
+      selectedText,
+      source,
       state: normalizedSession.state,
       pendingChoices: (normalizedSession.pendingChoices ?? []).map((c) => c.value),
     });
 
-    const { command, args, action, text } = parseInput(body, normalizedSession);
+    const { command, args, action, text } = parseInput(selectedText, normalizedSession);
     log.info('Parsed input', { command, args, action, hasText: Boolean(text) });
 
     let result;
