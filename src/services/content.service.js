@@ -24,6 +24,7 @@ const { generateWithOpenAI }    = require('./openai.service');
 const { generateWithAnthropic } = require('./anthropic.service');
 const { generateWithGroq }      = require('./groq.service');
 const { resolveAiKeys }         = require('./user.service');
+const { enforce: enforcePlatformRules, validateAiShape } = require('../utils/platformRules');
 const env                       = require('../config/env');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -162,43 +163,44 @@ function formatGeneratedContent(raw, platforms) {
   for (const platform of platforms) {
     const block = parsed[platform];
     if (!block || typeof block !== 'object') {
-      // The model skipped a platform — insert a graceful placeholder.
       generated[platform] = { content: '', error: 'Model did not generate content for this platform.' };
       continue;
     }
 
-    const content = typeof block.content === 'string' ? block.content : '';
+    // Run the model output through the platform-rule enforcer so we never
+    // emit content that exceeds char limits or violates hashtag counts.
+    const enforced = enforcePlatformRules(platform, {
+      content:  block.content,
+      hashtags: sanitiseHashtags(block.hashtags),
+    });
+
+    if (enforced.warnings.length > 0) {
+      console.warn(`[content] ${platform} rule warnings:`, enforced.warnings.join('; '));
+    }
 
     switch (platform) {
       case 'twitter':
-        generated.twitter = {
-          content,
-          char_count: content.length,
-          hashtags:   sanitiseHashtags(block.hashtags),
-        };
-        break;
-
       case 'linkedin':
-        generated.linkedin = {
-          content,
-          char_count: content.length,
-          hashtags:   sanitiseHashtags(block.hashtags),
+        generated[platform] = {
+          content:    enforced.content,
+          char_count: enforced.char_count,
+          hashtags:   enforced.hashtags,
         };
         break;
 
       case 'instagram':
         generated.instagram = {
-          content,
-          hashtags: sanitiseHashtags(block.hashtags),
+          content:  enforced.content,
+          hashtags: enforced.hashtags,
         };
         break;
 
       case 'threads':
-        generated.threads = { content };
+        generated.threads = { content: enforced.content };
         break;
 
       default:
-        generated[platform] = { content };
+        generated[platform] = { content: enforced.content };
     }
   }
 
@@ -350,11 +352,20 @@ async function runFallbackChain({ prompt, platforms, model, userKeys }) {
  * so the caller can retry / fall through.
  */
 function tryParseAndFormat(raw, platforms) {
+  let parsed;
   try {
-    JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
+    return null;  // malformed JSON — caller will retry/fallback
+  }
+
+  // Schema validation: require a block per requested platform with non-empty content.
+  const shape = validateAiShape(parsed, platforms);
+  if (!shape.valid) {
+    console.warn(`[content] AI output failed shape validation: ${shape.reason}`);
     return null;
   }
+
   return formatGeneratedContent(raw, platforms);
 }
 

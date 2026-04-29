@@ -12,6 +12,8 @@ const contentRouter   = require('./routes/content.routes');
 const postsRouter     = require('./routes/posts.routes');
 const dashboardRouter = require('./routes/dashboard.routes');
 const telegramRouter  = require('./routes/telegram.routes');
+const legalRouter     = require('./routes/legal.routes');
+const { getPrivacyPolicy, getTerms } = require('./controllers/legal.controller');
 const { attachUserIfPresent } = require('./middlewares/auth.middleware');
 const { rateLimit } = require('./middlewares/rateLimit.middleware');
 const { notFoundHandler, errorHandler } = require('./middlewares/error.middleware');
@@ -31,6 +33,12 @@ if (!env.isTest) {
 }
 
 app.use('/health', healthRouter);
+
+// Public legal pages — accessible at top-level (/privacy, /terms) for OAuth approval,
+// and also under /api/legal/* for consistency with other routes.
+app.get('/privacy', getPrivacyPolicy);
+app.get('/terms', getTerms);
+app.use('/api/legal', legalRouter);
 
 // API: identify caller (if authenticated) before rate limiting so the
 // limiter can key on user_id; falls back to IP for unauthenticated.
