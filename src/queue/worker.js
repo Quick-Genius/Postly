@@ -38,6 +38,10 @@ const { syncPostStatus }  = require('../services/publish.service');
 const { QUEUE_NAME, redisConnection } = require('./queue');
 const logger              = require('../utils/logger').child('Worker');
 
+// HTTP status codes that indicate the access token is invalid/expired/revoked —
+// no point retrying with the same credentials. The user must reconnect.
+const AUTH_FAILURE_STATUSES = new Set([401, 403]);
+
 function extractLinkedInUrn(value) {
   if (!value || typeof value !== 'string') return null;
   const match = value.match(/urn:li:[a-zA-Z]+:\d+/);
@@ -72,8 +76,77 @@ const platformAdapters = {
 
   async LINKEDIN({ accessToken, content }) {
     logger.info('Publishing to LinkedIn', { preview: content.slice(0, 60) });
-    await new Promise((r) => setTimeout(r, 200));
-    return { post_id: `urn:li:ugcPost:${Date.now()}` };
+
+    // Step 1 — resolve the author URN. LinkedIn requires `urn:li:person:{sub}`
+    // in the ugcPost payload; the `sub` comes from the OIDC userinfo endpoint.
+    const meRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!meRes.ok) {
+      const body = await meRes.text().catch(() => '');
+      const msg = `LinkedIn userinfo failed (HTTP ${meRes.status}): ${body.slice(0, 200)}`;
+      if (AUTH_FAILURE_STATUSES.has(meRes.status)) {
+        throw new UnrecoverableError(msg);
+      }
+      throw new Error(msg);
+    }
+
+    const me = await meRes.json();
+    if (!me?.sub) {
+      throw new UnrecoverableError('LinkedIn userinfo returned no `sub` — cannot build author URN');
+    }
+    const authorUrn = `urn:li:person:${me.sub}`;
+
+    // Step 2 — create the post via the ugcPosts endpoint.
+    const postRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({
+        author: authorUrn,
+        lifecycleState: 'PUBLISHED',
+        specificContent: {
+          'com.linkedin.ugc.ShareContent': {
+            shareCommentary: { text: content },
+            shareMediaCategory: 'NONE',
+          },
+        },
+        visibility: {
+          'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+        },
+      }),
+    });
+
+    if (!postRes.ok) {
+      const body = await postRes.text().catch(() => '');
+      const msg = `LinkedIn ugcPosts failed (HTTP ${postRes.status}): ${body.slice(0, 200)}`;
+      if (AUTH_FAILURE_STATUSES.has(postRes.status)) {
+        throw new UnrecoverableError(msg);
+      }
+      throw new Error(msg);
+    }
+
+    // The post URN is returned in the `x-restli-id` header (and usually in the
+    // body's `id` field too). Header is the canonical source.
+    const headerUrn = postRes.headers.get('x-restli-id');
+    let bodyUrn = null;
+    try {
+      const parsed = await postRes.json();
+      bodyUrn = parsed?.id ?? null;
+    } catch {
+      // 201 responses sometimes have an empty body — that's fine, header is enough
+    }
+
+    const urn = headerUrn || bodyUrn;
+    if (!urn) {
+      throw new Error('LinkedIn ugcPosts succeeded but returned no post URN');
+    }
+
+    return { post_id: urn };
   },
 
   async INSTAGRAM({ accessToken, content }) {

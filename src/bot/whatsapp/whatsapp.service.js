@@ -6,15 +6,16 @@
  * Responsibilities:
  *  1. Parse a raw Twilio message body into the normalized input shape that
  *     conversationService expects.
- *  2. Map user's button/list/text replies to structured action values using the
+ *  2. Map user's text replies to structured action values using the
  *     session's pendingChoices list (set by conversationService on every step).
  *  3. Call conversationService.handleCommand or conversationService.processMessage.
  *  4. Format the returned { replyText, options } into a WhatsApp-friendly
  *     text fallback for clients/channels where interactive UI isn't available.
  *
- * WhatsApp UX rules:
- *  - Twilio interactive taps are parsed via ButtonPayload/ButtonText/ListTitle.
- *  - Text fallback remains available for clients without interactive support.
+ * WhatsApp Sandbox UX rules:
+ *  - Sandbox does not support interactive buttons/lists.
+ *  - We simulate button-like UX using structured text options.
+ *  - Users can reply with either number OR keyword.
  *  - Legacy numeric input remains supported for backward compatibility.
  *  - User types free text only during the AWAIT_IDEA state.
  *  - Commands are sent without a "/" prefix (e.g. "start", "help").
@@ -50,16 +51,30 @@ const FINAL_ACTION_BY_NUMBER = {
 
 const DIRECT_ACTION_BY_TEXT = {
   announcement: 'type:announcement',
+  announce: 'type:announcement',
   thread: 'type:thread',
   story: 'type:story',
+  promo: 'type:promotional',
   promotional: 'type:promotional',
+  education: 'type:educational',
   educational: 'type:educational',
+  educate: 'type:educational',
   opinion: 'type:opinion',
+  thoughts: 'type:opinion',
   twitter: 'platform:twitter',
+  x: 'platform:twitter',
   linkedin: 'platform:linkedin',
+  'linked in': 'platform:linkedin',
+  li: 'platform:linkedin',
   done: 'platform:done',
+  confirm: 'platform:done',
+  finish: 'platform:done',
+  complete: 'platform:done',
+  post: 'action:post_now',
   'post now': 'action:post_now',
+  edit: 'action:edit_idea',
   'edit idea': 'action:edit_idea',
+  stop: 'action:cancel',
   cancel: 'action:cancel',
 };
 
@@ -87,6 +102,35 @@ function actionFromDirectText(cleanedText) {
   for (const [key, action] of Object.entries(DIRECT_ACTION_BY_TEXT)) {
     if (cleanedText.startsWith(key)) return action;
   }
+  return null;
+}
+
+function actionFromPlatformText(cleanedText) {
+  const tokens = cleanedText.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const platformSet = new Set();
+  let hasDone = false;
+
+  for (const token of tokens) {
+    if (['1', 'twitter', 'x'].includes(token)) {
+      platformSet.add('twitter');
+      continue;
+    }
+    if (['2', 'linkedin', 'li'].includes(token)) {
+      platformSet.add('linkedin');
+      continue;
+    }
+    if (['3', 'done', 'confirm', 'finish', 'complete'].includes(token)) {
+      hasDone = true;
+    }
+  }
+
+  const platforms = [...platformSet];
+  if (hasDone && platforms.length > 0) return `platform:multi_done:${platforms.join(',')}`;
+  if (hasDone) return 'platform:done';
+  if (platforms.length === 1) return `platform:${platforms[0]}`;
+  if (platforms.length > 1) return `platform:multi:${platforms.join(',')}`;
   return null;
 }
 
@@ -150,6 +194,13 @@ function parseInput(rawInput, session) {
     return { command: null, args: null, action: raw.toLowerCase(), text: null };
   }
 
+  if (state === 'SELECT_PLATFORMS') {
+    const platformAction = actionFromPlatformText(cleaned);
+    if (platformAction) {
+      return { command: null, args: null, action: platformAction, text: null };
+    }
+  }
+
   const directAction = actionFromDirectText(cleaned);
   if (directAction) {
     return { command: null, args: null, action: directAction, text: null };
@@ -205,14 +256,43 @@ function parseInput(rawInput, session) {
  *   ...
  *   6. ✓ Done (1 selected)
  *
- *   Tap a button/list option or type the option name.
+ *   Reply with number or keyword (e.g. "2" or "linkedin").
  */
+function keywordForValue(value) {
+  if (!value || typeof value !== 'string') return null;
+  if (value.startsWith('type:')) return value.slice(5);
+  if (value.startsWith('platform:')) return value.slice(9).replace('_', ' ');
+  if (value === 'action:post_now') return 'post';
+  if (value === 'action:edit_idea') return 'edit';
+  if (value === 'action:cancel') return 'cancel';
+  if (value.startsWith('tone:')) return value.slice(5);
+  if (value.startsWith('model:')) return value.slice(6);
+  return null;
+}
+
+function numberBadge(n) {
+  const map = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+  return map[n] || `${n}.`;
+}
+
 function formatReply(replyText, options) {
   if (!options?.length) return replyText;
-  const lines = options.map((opt) => `• ${opt.label}`);
-  const prompt = options.length <= 3
-    ? 'Tap a button (or type the option name).'
-    : 'Open the list and pick an option (or type the option name).';
+  const values = options.map((o) => o.value || '');
+  const lines = options.map((opt, i) => {
+    const keyword = keywordForValue(opt.value);
+    const suffix = keyword ? `  (${keyword})` : '';
+    return `${numberBadge(i + 1)} ${opt.label}${suffix}`;
+  });
+
+  let prompt = '👉 Reply with a number or keyword.';
+  if (values.every((v) => v.startsWith('type:'))) {
+    prompt = '👉 Reply with:\n- number (1–6)\n- keyword (e.g., "opinion")';
+  } else if (values.some((v) => v.startsWith('platform:'))) {
+    prompt = '👉 Reply with:\n- "twitter"\n- "linkedin"\n- multiple like "twitter linkedin"\n- or "done" to confirm';
+  } else if (values.some((v) => v.startsWith('action:'))) {
+    prompt = '👉 Reply with:\n- "post"\n- "edit"\n- "cancel"\n(also supports 1/2/3)';
+  }
+
   return `${replyText}\n\n${lines.join('\n')}\n\n${prompt}`;
 }
 

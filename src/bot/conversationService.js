@@ -91,6 +91,17 @@ function buildPlatformChoices(selected = []) {
   return choices;
 }
 
+function platformName(value) {
+  const found = PLATFORM_LIST.find((p) => p.value === value);
+  if (!found) return value;
+  return found.label.replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim();
+}
+
+function selectedPlatformsText(platforms = []) {
+  if (!platforms.length) return 'none';
+  return platforms.map((p) => platformName(p)).join(', ');
+}
+
 /**
  * Plain-text content preview — readable on any platform (no Markdown markers).
  */
@@ -297,7 +308,10 @@ async function processMessage({ platform, chatId, session, action, text }) {
   // ── SELECT_TYPE ─────────────────────────────────────────────────────────────
   if (state === 'SELECT_TYPE') {
     if (!action?.startsWith('type:')) {
-      return reply('Please select a content type from the options.', TYPE_CHOICES, 'type', session);
+      return reply(
+        '✨ Let\'s create a post!\n\nWhat type of content?\nChoose an option by typing keyword or number.',
+        TYPE_CHOICES, 'type', session,
+      );
     }
     const contentType = action.slice('type:'.length);
     const choices     = buildPlatformChoices([]);
@@ -305,7 +319,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     await botSession.setSession(platform, chatId, newSess);
     log.info('State transition', { from: 'SELECT_TYPE', to: 'SELECT_PLATFORMS', contentType });
     return reply(
-      `✅ Type: ${contentType}\n\nSelect your target platforms (choose multiple, then confirm):`,
+      `✅ Type: ${contentType}\n\nSelect platforms (you can choose multiple):`,
       choices, 'platform', newSess,
     );
   }
@@ -314,23 +328,59 @@ async function processMessage({ platform, chatId, session, action, text }) {
   if (state === 'SELECT_PLATFORMS') {
     if (!action?.startsWith('platform:')) {
       const choices = buildPlatformChoices(session.platforms ?? []);
-      return reply('Please select a platform from the options.', choices, 'platform', session);
+      return reply(
+        `Select platforms (you can choose multiple).\n\nSelected: ${selectedPlatformsText(session.platforms ?? [])}`,
+        choices, 'platform', session,
+      );
     }
 
     const value = action.slice('platform:'.length);
     const allowedPlatforms = new Set(PLATFORM_LIST.map((p) => p.value));
+
+    if (value.startsWith('multi_done:') || value.startsWith('multi:')) {
+      const isMultiDone = value.startsWith('multi_done:');
+      const rawPlatforms = value.slice(isMultiDone ? 'multi_done:'.length : 'multi:'.length);
+      const requested = rawPlatforms
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .filter((p) => allowedPlatforms.has(p));
+
+      const current = session.platforms ?? [];
+      const updated = [...new Set([...current, ...requested])];
+      const choices = buildPlatformChoices(updated);
+      const newSess = { ...session, platforms: updated, pendingChoices: choices };
+      await botSession.setSession(platform, chatId, newSess);
+      log.info('Platform selection updated (multi)', { selectedPlatforms: updated });
+
+      if (isMultiDone) {
+        if (!updated.length) {
+          return reply('⚠️ Select at least one platform first.', choices, 'platform', newSess);
+        }
+        const toneSess = { ...newSess, state: 'SELECT_TONE', pendingChoices: TONE_CHOICES };
+        await botSession.setSession(platform, chatId, toneSess);
+        return reply(
+          `✅ Platforms: ${selectedPlatformsText(updated)}\n\nChoose a tone for your content:`,
+          TONE_CHOICES, 'tone', toneSess,
+        );
+      }
+
+      return reply(
+        `✅ Updated selection.\nSelected: ${selectedPlatformsText(updated)}\nType another platform or "done".`,
+        choices, 'platform', newSess,
+      );
+    }
 
     if (value === 'done') {
       if (!session.platforms?.length) {
         const choices = buildPlatformChoices([]);
         return reply('⚠️ Select at least one platform first.', choices, 'platform', session);
       }
-      const platformList = session.platforms.map((p) => PLATFORM_EMOJIS[p] ?? p).join(' ');
       const newSess      = { ...session, state: 'SELECT_TONE', pendingChoices: TONE_CHOICES };
       await botSession.setSession(platform, chatId, newSess);
       log.info('State transition', { from: 'SELECT_PLATFORMS', to: 'SELECT_TONE', platforms: session.platforms });
       return reply(
-        `✅ Platforms: ${platformList}\n\nChoose a tone for your content:`,
+        `✅ Platforms: ${selectedPlatformsText(session.platforms)}\n\nChoose a tone for your content:`,
         TONE_CHOICES, 'tone', newSess,
       );
     }
@@ -352,7 +402,9 @@ async function processMessage({ platform, chatId, session, action, text }) {
     await botSession.setSession(platform, chatId, newSess);
     log.info('Platform selection updated', { selectedPlatforms: updated });
     const toggleMsg = platform === 'whatsapp'
-      ? (alreadySelected ? `${value} already selected` : `${value} added ✓`)
+      ? (alreadySelected
+        ? `ℹ️ ${platformName(value)} already selected.\nSelected: ${selectedPlatformsText(updated)}\nType another platform or "done".`
+        : `✅ Added ${platformName(value)}.\nSelected: ${selectedPlatformsText(updated)}\nType another platform or "done".`)
       : (updated.includes(value) ? `${value} added ✓` : `${value} removed`);
     return reply(toggleMsg, choices, 'platform', newSess);
   }
@@ -435,7 +487,10 @@ async function processMessage({ platform, chatId, session, action, text }) {
   // ── PREVIEW ─────────────────────────────────────────────────────────────────
   if (state === 'PREVIEW') {
     if (!action?.startsWith('action:')) {
-      return reply('Please select an option from the choices.', CONFIRM_CHOICES, 'confirm', session);
+      return reply(
+        'What would you like to do?',
+        CONFIRM_CHOICES, 'confirm', session,
+      );
     }
 
     const confirmAction = action.slice('action:'.length);
