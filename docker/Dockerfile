@@ -3,6 +3,9 @@ FROM node:22-alpine AS deps
 
 WORKDIR /app
 
+# Prisma's schema engine binary needs OpenSSL + glibc shim on Alpine.
+RUN apk add --no-cache openssl libc6-compat
+
 COPY package.json package-lock.json* ./
 # `prisma` CLI lives in dependencies (needed for `migrate deploy` at runtime),
 # so --omit=dev keeps the image lean without losing migration tooling.
@@ -16,8 +19,9 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000
 
-# Tini gives clean PID 1 signal handling so SIGTERM reaches Node
-RUN apk add --no-cache tini
+# Tini gives clean PID 1 signal handling so SIGTERM reaches Node.
+# openssl + libc6-compat are required by Prisma's engine binary at runtime.
+RUN apk add --no-cache tini openssl libc6-compat
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json* ./
