@@ -6,7 +6,7 @@ services:
     image: redis:7-alpine
     container_name: postly-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     ports:
       - "6379:6379"
     volumes:

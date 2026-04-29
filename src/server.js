@@ -43,7 +43,9 @@ async function start() {
     process.exit(1);
   }
 
-  const server = app.listen(env.port, () => {
+  // Bind to 0.0.0.0 so Render's port scanner can detect the open port.
+  // Without an explicit host, Node may bind to ::1/127.0.0.1 only on some setups.
+  const server = app.listen(env.port, '0.0.0.0', () => {
     console.log(`[startup] Postly API listening on port ${env.port} (${env.nodeEnv})`);
     console.log(`[startup] Base URL: ${env.baseUrl}`);
     reportAiProviders();

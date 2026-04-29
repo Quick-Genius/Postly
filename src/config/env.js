@@ -42,13 +42,30 @@ const env = {
   twilioAuthToken:       process.env.TWILIO_AUTH_TOKEN       || null,
   twilioWhatsappNumber:  process.env.TWILIO_WHATSAPP_NUMBER  || null,
   // Public base URL of this deployment — used for webhook registration and
-  // Twilio signature validation. Must be set in production.
-  baseUrl: process.env.BASE_URL || process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`,
+  // Twilio signature validation. Resolution order:
+  //   1. BASE_URL              (explicit, preferred)
+  //   2. APP_URL               (legacy alias)
+  //   3. RENDER_EXTERNAL_URL   (auto-injected by Render — e.g. https://<svc>.onrender.com)
+  //   4. localhost fallback    (dev only)
+  baseUrl:
+    process.env.BASE_URL ||
+    process.env.APP_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    `http://localhost:${process.env.PORT || 3000}`,
   // Keep APP_URL as a legacy alias so existing code (whatsapp.controller) works.
   get appUrl() { return this.baseUrl; },
 };
 
 env.isProd = env.nodeEnv === 'production';
 env.isTest = env.nodeEnv === 'test';
+
+// Loud warning if baseUrl is still localhost in production — webhooks
+// (Telegram, Twilio) and OAuth callbacks will silently break otherwise.
+if (env.isProd && env.baseUrl.startsWith('http://localhost')) {
+  console.warn(
+    '[env] WARNING: baseUrl resolved to localhost in production. ' +
+    'Set BASE_URL to your public HTTPS URL (e.g. https://your-app.onrender.com).',
+  );
+}
 
 module.exports = env;
