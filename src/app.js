@@ -12,6 +12,7 @@ const contentRouter   = require('./routes/content.routes');
 const postsRouter     = require('./routes/posts.routes');
 const dashboardRouter = require('./routes/dashboard.routes');
 const telegramRouter  = require('./routes/telegram.routes');
+const webhookRouter   = require('./routes/webhook.routes');
 const legalRouter     = require('./routes/legal.routes');
 const { getPrivacyPolicy, getTerms } = require('./controllers/legal.controller');
 const { attachUserIfPresent } = require('./middlewares/auth.middleware');
@@ -59,12 +60,12 @@ app.use('/api/oauth',   oauthRouter);
 app.use('/api/content',   contentRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/', webhookRouter);
 // Telegram webhook — mounted outside JWT auth; secured by TELEGRAM_WEBHOOK_SECRET
 // /api/telegram/webhook  — original path (kept for compatibility)
 // /api/bot/telegram      — canonical production path registered with Telegram
 app.use('/api/telegram',  telegramRouter);
 app.use('/api/bot/telegram', telegramRouter);
-app.use('/', telegramRouter);
 // WhatsApp webhook — mounted outside JWT auth; secured by Twilio signature validation
 app.use('/api/bot/whatsapp', require('./routes/whatsapp.routes'));
 
