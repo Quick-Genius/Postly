@@ -19,13 +19,14 @@
 
 const { Router } = require('express');
 const oauthController = require('../controllers/oauth.controller');
-const { requireAuth } = require('../middlewares/auth.middleware');
+const { optionalAuth } = require('../middlewares/auth.middleware');
 
 const router = Router();
 
 // ── Initiate OAuth flow (requires authenticated user) ─────────────────────────
-router.get('/twitter/connect',  requireAuth, oauthController.twitterConnect);
-router.get('/linkedin/connect', requireAuth, oauthController.linkedinConnect);
+// optionalAuth accepts tokens from Authorization header (Bearer) or query param (?token=...)
+router.get('/twitter/connect',  optionalAuth, oauthController.twitterConnect);
+router.get('/linkedin/connect', optionalAuth, oauthController.linkedinConnect);
 
 // ── OAuth callbacks (NO requireAuth — browser redirect from provider) ─────────
 router.get('/twitter/callback',  oauthController.twitterCallback);

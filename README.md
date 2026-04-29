@@ -48,7 +48,6 @@ prisma/
 docker/
   Dockerfile      multi-stage production image
 docker-compose.yml  local dev stack (Postgres + Redis + app)
-railway.toml        Railway deployment config
 .env.example        all supported environment variables
 ```
 
@@ -118,7 +117,7 @@ All variables are documented in [`.env.example`](.env.example). The table below 
 | `ANTHROPIC_API_KEY` | Optional | System-level Anthropic fallback |
 | `GROQ_API_KEY` | Optional | Final-fallback provider when OpenAI / Anthropic are unavailable |
 | `NODE_ENV` | Yes | `production` in all deployed environments |
-| `PORT` | Auto | Railway injects this; defaults to `3000` |
+| `PORT` | Auto | Render injects this; defaults to `3000` |
 
 ---
 
@@ -182,7 +181,7 @@ The `/health` endpoint reports which providers are configured:
 ```
 TELEGRAM_BOT_TOKEN=<your token>
 TELEGRAM_WEBHOOK_SECRET=<openssl rand -hex 32>
-BASE_URL=https://your-app.up.railway.app
+BASE_URL=https://your-service.onrender.com
 ```
 
 ### 3. Register the webhook
@@ -190,14 +189,14 @@ BASE_URL=https://your-app.up.railway.app
 After deploying, run the one-shot setup script:
 
 ```bash
-# In the Railway shell, or locally with prod env vars exported:
+# In the Render Shell for your service, or locally with prod env vars exported:
 npm run setup:webhooks
 ```
 
 This calls:
 ```
 POST https://api.telegram.org/bot<TOKEN>/setWebhook
-  { "url": "https://your-app.up.railway.app/api/bot/telegram/webhook",
+  { "url": "https://your-service.onrender.com/api/bot/telegram/webhook",
     "secret_token": "<TELEGRAM_WEBHOOK_SECRET>" }
 ```
 
@@ -223,7 +222,7 @@ The bot uses **webhook mode only** — polling is never used in production.
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=your_auth_token
 TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
-BASE_URL=https://your-app.up.railway.app
+BASE_URL=https://your-service.onrender.com
 ```
 
 ### 3. Configure Twilio webhook
@@ -231,30 +230,33 @@ BASE_URL=https://your-app.up.railway.app
 In the Twilio console, set the **incoming message webhook** for your WhatsApp number to:
 
 ```
-POST https://your-app.up.railway.app/api/bot/whatsapp
+POST https://your-service.onrender.com/api/bot/whatsapp
 ```
 
 Twilio will sign every request with `X-Twilio-Signature`; the app validates this using `TWILIO_AUTH_TOKEN` and rejects unsigned requests with `403`.
 
 ---
 
-## Deployment (Railway)
+## Deployment (Render)
 
 ### First deploy
 
 1. Push this repository to GitHub
-2. Create a new Railway project → **Deploy from GitHub repo**
-3. Add plugins: **PostgreSQL** and **Redis** — Railway injects `DATABASE_URL` and `REDIS_URL` automatically
-4. Set all required environment variables in the Railway dashboard (Settings → Variables)
-5. Railway detects `railway.toml` and builds using `docker/Dockerfile`
+2. In the Render dashboard, create a new **Web Service** → **Build and deploy from a Git repository**, then select this repo
+3. Set the runtime to **Docker** with Dockerfile path `docker/Dockerfile`
+4. Provision a managed **PostgreSQL** instance and a **Key Value (Redis)** instance from the Render dashboard, then copy their connection strings into the web service's env vars as `DATABASE_URL` and `REDIS_URL`
+5. Set all required environment variables in the web service settings (**Environment**)
+6. Set the health check path to `/health`
 
-### Environment variables to set in Railway
+### Environment variables to set in Render
 
 ```
 NODE_ENV=production
 JWT_SECRET=<openssl rand -base64 48>
 ENCRYPTION_KEY=<openssl rand -hex 32>
-BASE_URL=https://<your-railway-domain>
+BASE_URL=https://<your-service>.onrender.com
+DATABASE_URL=<from Render Postgres>
+REDIS_URL=<from Render Key Value>
 TELEGRAM_BOT_TOKEN=<from BotFather>
 TELEGRAM_WEBHOOK_SECRET=<openssl rand -hex 32>
 TWILIO_ACCOUNT_SID=<from Twilio console>
@@ -262,13 +264,13 @@ TWILIO_AUTH_TOKEN=<from Twilio console>
 TWILIO_WHATSAPP_NUMBER=whatsapp:+<number>
 ```
 
-`DATABASE_URL`, `REDIS_URL`, and `PORT` are set automatically by Railway plugins.
+`PORT` is injected automatically by Render.
 
 ### Post-deploy steps
 
 ```bash
 # Register the Telegram webhook (run once per environment)
-# Open the Railway shell for your service, then:
+# Open the Render Shell for your service, then:
 npm run setup:webhooks
 ```
 
@@ -280,7 +282,7 @@ On every boot the server:
 3. Applies any pending Prisma migrations (`prisma migrate deploy`)
 4. Binds the HTTP port and starts the scheduler
 
-If either connection fails at startup, the process exits with code 1 so Railway can retry.
+If either connection fails at startup, the process exits with code 1 so Render can retry.
 
 ### Health check
 
@@ -290,7 +292,7 @@ GET /health
 → 503 { "status": "degraded", ... }   ← if DB or Redis is unreachable
 ```
 
-Railway uses this endpoint to determine deployment health.
+Render uses this endpoint to determine deployment health.
 
 ---
 

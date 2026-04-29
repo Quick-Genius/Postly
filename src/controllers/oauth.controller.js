@@ -9,8 +9,11 @@
  *  - Return consistent responses
  *
  * Route protection:
- *  - /connect endpoints   → requireAuth (user must be logged in to initiate)
- *  - /callback endpoints  → NO requireAuth (browser redirect from provider,
+ *  - /connect endpoints   → optionalAuth (token from header OR ?token= query param);
+ *    controller enforces 401 when req.userId is missing. Responds with
+ *    res.redirect(auth_url) so a browser hitting the URL is sent straight
+ *    to the provider's authorization page.
+ *  - /callback endpoints  → NO auth (browser redirect from provider,
  *    no JWT present; userId is recovered from Redis-stored state)
  */
 
@@ -20,12 +23,14 @@ const oauthService = require('../services/oauth.service');
 
 /**
  * GET /api/oauth/twitter/connect
- * Protected. Returns the Twitter authorization URL.
+ * Requires authenticated user. Token can be passed via Authorization header or ?token= query param.
+ * Redirects the browser to Twitter's authorization page.
  */
 async function twitterConnect(req, res, next) {
   try {
-    const result = await oauthService.twitterConnect(req.userId);
-    res.status(200).json(result);
+    if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const { auth_url } = await oauthService.twitterConnect(req.userId);
+    return res.redirect(auth_url);
   } catch (err) {
     next(err);
   }
@@ -54,12 +59,14 @@ async function twitterCallback(req, res, next) {
 
 /**
  * GET /api/oauth/linkedin/connect
- * Protected. Returns the LinkedIn authorization URL.
+ * Requires authenticated user. Token can be passed via Authorization header or ?token= query param.
+ * Redirects the browser to LinkedIn's authorization page.
  */
 async function linkedinConnect(req, res, next) {
   try {
-    const result = await oauthService.linkedinConnect(req.userId);
-    res.status(200).json(result);
+    if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
+    const { auth_url } = await oauthService.linkedinConnect(req.userId);
+    return res.redirect(auth_url);
   } catch (err) {
     next(err);
   }

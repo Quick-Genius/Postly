@@ -32,7 +32,7 @@ No GitHub Copilot or ChatGPT was used. All AI interaction was through Claude Cod
 **What I changed:**
 - Added explicit `SIGTERM`/`SIGINT` handlers with a 10-second forced exit timeout in `server.js` — the initial version did `process.exit(0)` directly in the signal handler without waiting for in-flight requests.
 - Removed the `x-powered-by` header (`app.disable('x-powered-by')`) — Claude's scaffold left it on.
-- Added `app.set('trust proxy', 1)` for correct IP extraction behind Railway's reverse proxy.
+- Added `app.set('trust proxy', 1)` for correct IP extraction behind Render's reverse proxy.
 
 ---
 
@@ -139,10 +139,9 @@ No GitHub Copilot or ChatGPT was used. All AI interaction was through Claude Cod
 ### 2.8 Production Configuration (PR 9)
 
 **Prompt style used:**
-> "Make the system deployable on Railway. Add startup connection verification for DB and Redis. Add a one-shot webhook registration script. Update README with full deployment instructions."
+> "Make the system deployable on Render. Add startup connection verification for DB and Redis. Add a one-shot webhook registration script. Update README with full deployment instructions."
 
 **What was generated:**
-- `railway.toml`
 - `src/scripts/setup-webhooks.js`
 - Updated `README.md`
 

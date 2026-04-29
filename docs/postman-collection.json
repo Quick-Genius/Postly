@@ -8,7 +8,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "https://postly-production.up.railway.app",
+      "value": "https://credes-assesment.onrender.com",
       "type": "string"
     },
     {
@@ -41,7 +41,7 @@
               "host": ["{{base_url}}"],
               "path": ["health"]
             },
-            "description": "Returns DB and Redis connectivity status. Used by Railway as the deployment health check."
+            "description": "Returns DB and Redis connectivity status. Used by Render as the deployment health check."
           },
           "response": []
         }
