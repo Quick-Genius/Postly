@@ -30,7 +30,7 @@
  *    Redis flush) are re-enqueued by the scheduler on its next run.
  */
 
-const { Worker } = require('bullmq');
+const { Worker, UnrecoverableError } = require('bullmq');
 
 const prisma              = require('../config/prisma');
 const { decrypt }         = require('../utils/encryption');
@@ -124,9 +124,7 @@ async function processJob(job) {
 
   if (!socialAccount) {
     // Not a transient failure — no point retrying without the account.
-    const err = new Error(`No connected ${platform} account found for user ${userId}`);
-    err.permanent = true;  // signal to skip retries (handled in failed event)
-    throw err;
+    throw new UnrecoverableError(`No connected ${platform} account found for user ${userId}`);
   }
 
   // ── Step 4: Decrypt access token ──────────────────────────────────────────
@@ -134,17 +132,13 @@ async function processJob(job) {
   try {
     accessToken = decrypt(socialAccount.accessTokenEnc);
   } catch (decryptErr) {
-    const err = new Error(`Token decryption failed for ${platform}: ${decryptErr.message}`);
-    err.permanent = true;
-    throw err;
+    throw new UnrecoverableError(`Token decryption failed for ${platform}: ${decryptErr.message}`);
   }
 
   // ── Step 5: Call platform API ─────────────────────────────────────────────
   const adapter = platformAdapters[platform];
   if (!adapter) {
-    const err = new Error(`No adapter registered for platform: ${platform}`);
-    err.permanent = true;
-    throw err;
+    throw new UnrecoverableError(`No adapter registered for platform: ${platform}`);
   }
 
   const result = await adapter({ accessToken, content: platformPost.content, platform });
@@ -180,14 +174,22 @@ worker.on('completed', (job) => {
 });
 
 /**
- * Called after ALL retries are exhausted.
- * This is the single place we write the final FAILED status.
+ * Fires on every failed attempt. Only treat as terminal when retries are
+ * exhausted OR the error is an UnrecoverableError (BullMQ stops retrying).
  */
 worker.on('failed', async (job, err) => {
   if (!job) return;  // job may be undefined if it couldn't be fetched
 
   const { platformPostId, postId } = job.data;
   const errorMessage = err?.message ?? 'Unknown error';
+  const maxAttempts = job.opts?.attempts ?? 1;
+  const isUnrecoverable = err?.name === 'UnrecoverableError';
+  const isTerminal = isUnrecoverable || job.attemptsMade >= maxAttempts;
+
+  if (!isTerminal) {
+    console.warn(`[Worker] Job ${job.id} attempt ${job.attemptsMade}/${maxAttempts} failed — will retry: ${errorMessage}`);
+    return;
+  }
 
   console.error(`[Worker] Job ${job.id} permanently failed — ${errorMessage}`);
 
