@@ -18,5 +18,5 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
-ARCHITECTURE.md
+# ARCHITECTURE.md
 claude.md
