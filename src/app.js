@@ -28,6 +28,10 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use((req, _res, next) => {
+  httpLogger.info(`${req.method} ${req.originalUrl}`);
+  next();
+});
 
 if (!env.isTest) {
   // Pipe morgan through the structured logger so access lines share format/sink.
@@ -60,6 +64,7 @@ app.use('/api/dashboard', dashboardRouter);
 // /api/bot/telegram      — canonical production path registered with Telegram
 app.use('/api/telegram',  telegramRouter);
 app.use('/api/bot/telegram', telegramRouter);
+app.use('/', telegramRouter);
 // WhatsApp webhook — mounted outside JWT auth; secured by Twilio signature validation
 app.use('/api/bot/whatsapp', require('./routes/whatsapp.routes'));
 

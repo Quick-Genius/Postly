@@ -14,10 +14,12 @@
 
 const { Router }      = require('express');
 const { handleWebhook } = require('../bot/telegram/bot');
+const logger = require('../utils/logger').child('telegram-webhook');
 
 const router = Router();
 
 router.post('/webhook', (req, res, next) => {
+  logger.info('Incoming Telegram webhook update', { body: req.body });
   if (!handleWebhook) {
     return res.status(503).json({ error: 'Telegram bot is not configured (TELEGRAM_BOT_TOKEN not set)' });
   }

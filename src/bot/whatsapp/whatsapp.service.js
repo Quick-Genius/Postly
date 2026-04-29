@@ -21,12 +21,29 @@
 
 const botSession          = require('../botSession');
 const conversationService = require('../conversationService');
+const logger              = require('../../utils/logger').child('WhatsAppService');
 
 const PLATFORM = 'whatsapp';
 
 // ── Command aliases (WhatsApp users don't type "/") ───────────────────────────
 
 const COMMANDS = new Set(['start', 'status', 'accounts', 'help']);
+const PLATFORM_ACTION_BY_NUMBER = {
+  '1': 'platform:twitter',
+  '2': 'platform:linkedin',
+  '3': 'platform:done',
+};
+
+const normalizeState = (state) => {
+  switch (state) {
+    case 'platform_selection': return 'SELECT_PLATFORMS';
+    case 'type_selection': return 'SELECT_TYPE';
+    case 'tone_selection': return 'SELECT_TONE';
+    case 'model_selection': return 'SELECT_MODEL';
+    case 'await_idea': return 'AWAIT_IDEA';
+    default: return state;
+  }
+};
 
 // ── Input parser ──────────────────────────────────────────────────────────────
 
@@ -41,9 +58,9 @@ const COMMANDS = new Set(['start', 'status', 'accounts', 'help']);
  *  5. Anything else → { action: null, text: body } (service returns a helpful error)
  */
 function parseInput(body, session) {
-  const raw   = body.trim();
+  const raw   = String(body ?? '').trim();
   const lower = raw.toLowerCase();
-  const state = session?.state ?? 'IDLE';
+  const state = normalizeState(session?.state ?? 'IDLE');
 
   // ── Commands ──────────────────────────────────────────────────────────────
   if (COMMANDS.has(lower)) {
@@ -61,6 +78,12 @@ function parseInput(body, session) {
   // ── "done" shorthand for platform confirmation ────────────────────────────
   if (state === 'SELECT_PLATFORMS' && lower === 'done') {
     return { command: null, args: null, action: 'platform:done', text: null };
+  }
+
+  // Guard rail for WhatsApp platform selection:
+  // 1 => twitter, 2 => linkedin, 3 => done
+  if (state === 'SELECT_PLATFORMS' && PLATFORM_ACTION_BY_NUMBER[raw]) {
+    return { command: null, args: null, action: PLATFORM_ACTION_BY_NUMBER[raw], text: null };
   }
 
   // ── Number → pendingChoices lookup ────────────────────────────────────────
@@ -108,21 +131,41 @@ function formatReply(replyText, options) {
  * @returns {Promise<string>} The text to send back to the user.
  */
 async function handleWebhook({ from, body }) {
-  const session = (await botSession.getSession(PLATFORM, from)) ?? botSession.blankFlow(null);
-  const { command, args, action, text } = parseInput(body, session);
+  const log = logger.child('handleWebhook', { from });
+  try {
+    const session = (await botSession.getSession(PLATFORM, from)) ?? botSession.blankFlow(null);
+    const normalizedSession = { ...session, state: normalizeState(session.state ?? 'IDLE') };
+    if (normalizedSession.state !== session.state) {
+      await botSession.setSession(PLATFORM, from, normalizedSession);
+    }
 
-  let result;
-  if (command) {
-    result = await conversationService.handleCommand({
-      command, args, platform: PLATFORM, chatId: from, session,
+    log.info('Incoming WhatsApp message', {
+      body,
+      state: normalizedSession.state,
+      pendingChoices: (normalizedSession.pendingChoices ?? []).map((c) => c.value),
     });
-  } else {
-    result = await conversationService.processMessage({
-      platform: PLATFORM, chatId: from, session, action, text,
-    });
+
+    const { command, args, action, text } = parseInput(body, normalizedSession);
+    log.info('Parsed input', { command, args, action, hasText: Boolean(text) });
+
+    let result;
+    if (command) {
+      result = await conversationService.handleCommand({
+        command, args, platform: PLATFORM, chatId: from, session: normalizedSession,
+      });
+    } else {
+      result = await conversationService.processMessage({
+        platform: PLATFORM, chatId: from, session: normalizedSession, action, text,
+      });
+    }
+
+    const nextState = result?.updatedSession?.state ?? normalizedSession.state;
+    log.info('Conversation step completed', { fromState: normalizedSession.state, toState: nextState });
+    return formatReply(result.replyText, result.options);
+  } catch (err) {
+    log.error('Failed to process WhatsApp webhook', { err, body });
+    return '⚠️ Something went wrong. Send "start" to try again.';
   }
-
-  return formatReply(result.replyText, result.options);
 }
 
 module.exports = { handleWebhook };

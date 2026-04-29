@@ -68,9 +68,11 @@ async function start() {
     process.exit(1);
   }
 
+  const PORT = process.env.PORT || 3000;
+
   // Bind to 0.0.0.0 so Render's port scanner can detect the open port.
-  const server = app.listen(env.port, '0.0.0.0', () => {
-    logger.info(`Postly API listening on port ${env.port} (${env.nodeEnv})`);
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`Postly API listening on port ${PORT} (${env.nodeEnv})`);
     logger.info(`Base URL: ${env.baseUrl}`);
     reportAiProviders();
     startScheduler();

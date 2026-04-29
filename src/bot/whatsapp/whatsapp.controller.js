@@ -54,34 +54,37 @@ function twimlReply(message) {
 // ── Controller ────────────────────────────────────────────────────────────────
 
 async function handle(req, res) {
-  if (!isValidTwilioRequest(req)) {
-    logger.warn('Rejected request — invalid Twilio signature', {
-      ip: req.ip,
-      url: `${env.appUrl}/api/bot/whatsapp`,
-    });
-    return res.status(403).send('Forbidden');
-  }
-
-  const { From, Body } = req.body ?? {};
-
-  if (!From || !Body) {
-    logger.warn('Bad request — missing From or Body', { hasFrom: Boolean(From), hasBody: Boolean(Body) });
-    return res.status(400).send('Bad Request');
-  }
-
-  // Strip Twilio's "whatsapp:" prefix → bare E.164 number used as session key.
-  const from = From.replace(/^whatsapp:/i, '').trim();
-  const body = Body.trim();
-
-  const reqLog = logger.child('handle', { from, bodyPreview: body.slice(0, 80) });
-  reqLog.debug('Inbound message received');
-
   try {
+    if (!isValidTwilioRequest(req)) {
+      logger.warn('Rejected request — invalid Twilio signature', {
+        ip: req.ip,
+        url: `${env.appUrl}/api/bot/whatsapp`,
+      });
+      return res.status(403).send('Forbidden');
+    }
+
+    const { From, Body } = req.body ?? {};
+    if (!From || Body == null) {
+      logger.warn('Bad request — missing From or Body', { hasFrom: Boolean(From), hasBody: Body != null });
+      return res.status(400).send('Bad Request');
+    }
+
+    // Normalize aggressively so numeric/typed payloads still work.
+    const from = String(From).replace(/^whatsapp:/i, '').trim();
+    const body = String(Body).trim();
+
+    const reqLog = logger.child('handle', {
+      from,
+      bodyType: typeof Body,
+      bodyPreview: body.slice(0, 80),
+    });
+    reqLog.info('Inbound WhatsApp webhook message');
+
     const replyText = await whatsappService.handleWebhook({ from, body });
-    reqLog.debug('Replying', { replyLength: replyText?.length ?? 0 });
+    reqLog.info('Replying to WhatsApp webhook', { replyLength: replyText?.length ?? 0 });
     return res.type('text/xml').send(twimlReply(replyText));
   } catch (err) {
-    reqLog.error('Unhandled error in webhook handler', { err });
+    logger.error('Unhandled error in webhook handler', { err, body: req.body });
     return res.type('text/xml').send(
       twimlReply('⚠️ Something went wrong. Send "start" to try again.'),
     );

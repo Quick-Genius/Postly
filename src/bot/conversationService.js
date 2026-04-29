@@ -22,6 +22,7 @@ const postsService          = require('../services/posts.service');
 const userService           = require('../services/user.service');
 const { verifyAccessToken } = require('../utils/jwt');
 const botSession            = require('./botSession');
+const logger                = require('../utils/logger').child('Conversation');
 
 const IDEA_MAX_LENGTH = 500;
 
@@ -238,6 +239,7 @@ async function handleCommand({ command, args, platform, chatId, session }) {
 async function processMessage({ platform, chatId, session, action, text }) {
   const state  = session?.state ?? 'IDLE';
   const userId = session?.userId ?? null;
+  const log    = logger.child('processMessage', { platform, chatId, state, action });
 
   // ── IDLE ────────────────────────────────────────────────────────────────────
   if (state === 'IDLE') {
@@ -256,6 +258,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     const choices     = buildPlatformChoices([]);
     const newSess     = { ...session, state: 'SELECT_PLATFORMS', contentType, pendingChoices: choices };
     await botSession.setSession(platform, chatId, newSess);
+    log.info('State transition', { from: 'SELECT_TYPE', to: 'SELECT_PLATFORMS', contentType });
     return reply(
       `✅ Type: ${contentType}\n\nSelect your target platforms (choose multiple, then confirm):`,
       choices, 'platform', newSess,
@@ -270,6 +273,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     }
 
     const value = action.slice('platform:'.length);
+    const allowedPlatforms = new Set(PLATFORM_LIST.map((p) => p.value));
 
     if (value === 'done') {
       if (!session.platforms?.length) {
@@ -279,10 +283,16 @@ async function processMessage({ platform, chatId, session, action, text }) {
       const platformList = session.platforms.map((p) => PLATFORM_EMOJIS[p] ?? p).join(' ');
       const newSess      = { ...session, state: 'SELECT_TONE', pendingChoices: TONE_CHOICES };
       await botSession.setSession(platform, chatId, newSess);
+      log.info('State transition', { from: 'SELECT_PLATFORMS', to: 'SELECT_TONE', platforms: session.platforms });
       return reply(
         `✅ Platforms: ${platformList}\n\nChoose a tone for your content:`,
         TONE_CHOICES, 'tone', newSess,
       );
+    }
+
+    if (!allowedPlatforms.has(value)) {
+      const choices = buildPlatformChoices(session.platforms ?? []);
+      return reply('Please select a valid platform option.', choices, 'platform', session);
     }
 
     // Toggle
@@ -293,6 +303,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     const choices  = buildPlatformChoices(updated);
     const newSess  = { ...session, platforms: updated, pendingChoices: choices };
     await botSession.setSession(platform, chatId, newSess);
+    log.info('Platform selection updated', { selectedPlatforms: updated });
     const toggleMsg = updated.includes(value) ? `${value} added ✓` : `${value} removed`;
     return reply(toggleMsg, choices, 'platform', newSess);
   }
