@@ -7,11 +7,9 @@
 ## Live URL
 
 ```
-Base URL: https://postly-production.up.railway.app
-Health:   https://postly-production.up.railway.app/health
+Base URL: https://credes-assesment.onrender.com
+Health:   https://credes-assesment.onrender.com/health
 ```
-
-> Replace the hostname above with your actual Railway deployment URL once live.
 
 ---
 
@@ -21,7 +19,7 @@ Health:   https://postly-production.up.railway.app/health
 - PostgreSQL 16 (via Prisma ORM)
 - Redis 7 (sessions, rate limiting, BullMQ queue)
 - Docker / docker-compose
-- Railway (production hosting)
+- Render (production hosting)
 - Telegram Bot API (Grammy, webhook mode)
 - Twilio (WhatsApp webhook)
 
