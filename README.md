@@ -1,5 +1,9 @@
 # Postly
 
+> **Testing credentials:**
+> - **Telegram**: For posting on LinkedIn using Telegram, use `@PostlyyyBot`
+> - **Twilio**: Use testing number `+1 (415) 523-8886`
+
 **Multi-platform AI content publishing engine.** Users compose ideas via a chat bot, an AI engine drafts platform-specific content, and a worker fleet publishes (or schedules) the drafts to Twitter, LinkedIn, and beyond.
 
 ---
