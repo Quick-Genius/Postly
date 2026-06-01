@@ -181,9 +181,6 @@ function parseInput(rawInput, session) {
   if (COMMANDS.has(lower)) {
     return { command: lower, args: [], action: null, text: null };
   }
-  if (lower.startsWith('link ')) {
-    return { command: 'link', args: [raw.slice(5).trim()], action: null, text: null };
-  }
 
   // ── Free-text idea ────────────────────────────────────────────────────────
   if (state === 'AWAIT_IDEA') {

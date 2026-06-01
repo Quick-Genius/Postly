@@ -41,6 +41,10 @@ const env = {
   twilioAccountSid:      process.env.TWILIO_ACCOUNT_SID      || null,
   twilioAuthToken:       process.env.TWILIO_AUTH_TOKEN       || null,
   twilioWhatsappNumber:  process.env.TWILIO_WHATSAPP_NUMBER  || null,
+  // Clerk
+  clerkPublishableKey:   process.env.CLERK_PUBLISHABLE_KEY   || null,
+  clerkSecretKey:        process.env.CLERK_SECRET_KEY        || null,
+  clerkWebhookSecret:    process.env.CLERK_WEBHOOK_SECRET    || null,
   // Public base URL of this deployment — used for webhook registration and
   // Twilio signature validation. Resolution order:
   //   1. BASE_URL              (explicit, preferred)
@@ -54,6 +58,7 @@ const env = {
     `http://localhost:${process.env.PORT || 3000}`,
   // Keep APP_URL as a legacy alias so existing code (whatsapp.controller) works.
   get appUrl() { return this.baseUrl; },
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
 };
 
 env.isProd = env.nodeEnv === 'production';

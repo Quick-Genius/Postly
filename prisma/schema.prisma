@@ -12,6 +12,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
 // ─── Enums ───────────────────────────────────────────────────────
 
 enum Platform {
@@ -53,6 +59,8 @@ model User {
   id              String   @id @default(uuid()) @db.Uuid
   email           String   @unique
   passwordHash    String   @map("password_hash")
+  clerkId         String?  @unique @map("clerk_id")
+  role            Role     @default(USER)
   name            String
   bio             String?
   defaultTone     String?  @map("default_tone")
@@ -127,6 +135,7 @@ model Post {
   modelUsed String?    @map("model_used")
   publishAt DateTime?  @map("publish_at")
   status    PostStatus @default(DRAFT)
+  topics    String[]   @default([])
   deletedAt DateTime?  @map("deleted_at")
   createdAt DateTime   @default(now()) @map("created_at")
 

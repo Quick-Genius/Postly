@@ -50,8 +50,6 @@ if (env.telegramBotToken) {
 
   bot.command('start', (ctx) => handlers.handleStart(ctx));
 
-  bot.command('link', (ctx) => handlers.handleLinkCommand(ctx));
-
   bot.command('status', async (ctx) => {
     const sess = await getsess(ctx);
     await handlers.handleStatus(ctx, sess);

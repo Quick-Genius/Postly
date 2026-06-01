@@ -42,7 +42,7 @@ function makeError(message, status = 400) {
  * @param {Date|null} publishAt
  */
 async function createPost(userId, body, publishAt) {
-  const { idea, post_type = 'TEXT', tone, language, model_used, platforms } = body;
+  const { idea, post_type = 'TEXT', tone, language, model_used, platforms, topics = [] } = body;
 
   if (!idea || typeof idea !== 'string' || !idea.trim()) {
     throw makeError('idea is required');
@@ -80,6 +80,7 @@ async function createPost(userId, body, publishAt) {
       language:  language   || null,
       modelUsed: model_used || null,
       publishAt: publishAt  || null,
+      topics:    Array.isArray(topics) ? topics : [],
       status:    isScheduled ? 'SCHEDULED' : 'QUEUED',
       platformPosts: {
         create: platformEntries.map(([platform, data]) => ({

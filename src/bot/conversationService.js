@@ -22,6 +22,8 @@ const postsService          = require('../services/posts.service');
 const userService           = require('../services/user.service');
 const { verifyAccessToken } = require('../utils/jwt');
 const botSession            = require('./botSession');
+const env                   = require('../config/env');
+const crypto                = require('crypto');
 const logger                = require('../utils/logger').child('Conversation');
 
 const IDEA_MAX_LENGTH = 500;
@@ -149,10 +151,15 @@ async function handleCommand({ command, args, platform, chatId, session }) {
       const resetBase = botSession.blankFlow(userId);
 
       if (!userId) {
+        const token = crypto.randomUUID();
+        await botSession.setLinkToken(token, platform, chatId);
+        const linkUrl = `${env.frontendUrl}/auth?bot_link=${token}`;
+
         return reply(
           `👋 Welcome to Postly!\n\n` +
-          `Link your account to get started:\n${pfx}link <your_api_token>\n\n` +
-          `Get your token from the Postly web app → Settings → API Token.`,
+          `Please link your account to get started:\n\n` +
+          `🔗 ${linkUrl}\n\n` +
+          `Once authenticated, you'll be able to create posts directly from here.`,
           null, null, session,
         );
       }
@@ -167,10 +174,15 @@ async function handleCommand({ command, args, platform, chatId, session }) {
     // ── restart ───────────────────────────────────────────────────────────────
     case 'restart': {
       if (!userId) {
+        const token = crypto.randomUUID();
+        await botSession.setLinkToken(token, platform, chatId);
+        const linkUrl = `${env.frontendUrl}/auth?bot_link=${token}`;
+
         return reply(
           `👋 Welcome to Postly!\n\n` +
-          `Link your account to get started:\n${pfx}link <your_api_token>\n\n` +
-          `Get your token from the Postly web app → Settings → API Token.`,
+          `Please link your account to get started:\n\n` +
+          `🔗 ${linkUrl}\n\n` +
+          `Once authenticated, you'll be able to create posts directly from here.`,
           null, null, session,
         );
       }
@@ -192,35 +204,9 @@ async function handleCommand({ command, args, platform, chatId, session }) {
       );
     }
 
-    // ── link ──────────────────────────────────────────────────────────────────
-    case 'link': {
-      const token = args[0];
-      if (!token) {
-        return reply(
-          `Usage: ${pfx}link <your_api_token>\n\nGet your token from the Postly web app.`,
-          null, null, session,
-        );
-      }
-      try {
-        const payload = verifyAccessToken(token);
-        await userService.getProfile(payload.sub); // ensure user exists
-        const newSess = { ...(session ?? botSession.blankFlow()), userId: payload.sub };
-        await botSession.setSession(platform, chatId, newSess);
-        return reply(
-          `✅ Account linked!\n\nSend ${pfx}start to create your first post.`,
-          null, null, newSess,
-        );
-      } catch {
-        return reply(
-          '❌ Invalid or expired token. Generate a new one from the Postly web app.',
-          null, null, session,
-        );
-      }
-    }
-
     // ── status ────────────────────────────────────────────────────────────────
     case 'status': {
-      if (!userId) return reply(`Link your account first: ${pfx}link <token>`, null, null, session);
+      if (!userId) return reply(`Please link your account first by typing ${pfx}start`, null, null, session);
       try {
         const { data: posts } = await postsService.listPosts(userId, { limit: 5, page: 1 });
         if (!posts.length) return reply('No posts yet. Send start to create one!', null, null, session);
@@ -243,7 +229,7 @@ async function handleCommand({ command, args, platform, chatId, session }) {
 
     // ── accounts ──────────────────────────────────────────────────────────────
     case 'accounts': {
-      if (!userId) return reply(`Link your account first: ${pfx}link <token>`, null, null, session);
+      if (!userId) return reply(`Please link your account first by typing ${pfx}start`, null, null, session);
       try {
         const accounts = await userService.getSocialAccounts(userId);
         if (!accounts.length) return reply('No connected accounts. Add them from the Postly web app.', null, null, session);
@@ -258,12 +244,11 @@ async function handleCommand({ command, args, platform, chatId, session }) {
     case 'help': {
       return reply(
         `📖 Postly Bot — Commands\n\n` +
-        `${pfx}start — Create a new post\n` +
+        `${pfx}start — Create a new post / Link account\n` +
         `${pfx}restart — Restart from the first prompt\n` +
         `${pfx}end — End the current conversation\n` +
         `${pfx}status — View last 5 posts\n` +
         `${pfx}accounts — View connected social accounts\n` +
-        `${pfx}link <token> — Link your account\n` +
         `${pfx}help — Show this message`,
         null, null, session,
       );
@@ -517,9 +502,18 @@ async function processMessage({ platform, chatId, session, action, text }) {
 
       const { platforms: selectedPlatforms, generatedContent, idea, tone, model } = session;
       const platformsMap = {};
+      const allTopics = new Set();
+
       for (const p of selectedPlatforms ?? []) {
-        const content = generatedContent?.[p]?.content?.trim();
-        if (content) platformsMap[p.toUpperCase()] = { content };
+        const platformData = generatedContent?.[p];
+        const content = platformData?.content?.trim();
+        if (content) {
+          platformsMap[p.toUpperCase()] = { content };
+          // Simple topic extraction: words starting with # or common keywords
+          if (platformData.hashtags) {
+            platformData.hashtags.forEach(tag => allTopics.add(tag.replace('#', '').toLowerCase()));
+          }
+        }
       }
 
       if (!Object.keys(platformsMap).length) {
@@ -533,6 +527,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
           tone:       tone  ?? undefined,
           model_used: model ?? undefined,
           platforms:  platformsMap,
+          topics:     Array.from(allTopics),
         });
 
         const newSess = botSession.blankFlow(userId);

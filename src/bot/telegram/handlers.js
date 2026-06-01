@@ -54,16 +54,6 @@ async function handleStart(ctx) {
   await ctx.reply(result.replyText, { reply_markup: buildReplyMarkup(result) });
 }
 
-async function handleLinkCommand(ctx) {
-  const cid   = getChatId(ctx);
-  const sess  = await botSession.getSession(PLATFORM, cid);
-  const parts = (ctx.message?.text ?? '').trim().split(/\s+/);
-  const result = await conversationService.handleCommand({
-    command: 'link', args: parts.slice(1), platform: PLATFORM, chatId: cid, session: sess,
-  });
-  await ctx.reply(result.replyText);
-}
-
 async function handleStatus(ctx, sess) {
   const result = await conversationService.handleCommand({
     command: 'status', args: [], platform: PLATFORM, chatId: getChatId(ctx), session: sess,
@@ -190,7 +180,7 @@ async function handleUnexpectedText(ctx) {
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
-  handleStart, handleLinkCommand, handleStatus, handleAccounts, handleHelp,
+  handleStart, handleStatus, handleAccounts, handleHelp,
   handleIdle, handleSelectType, handleSelectPlatforms, handleSelectTone,
   handleSelectModel, handleAwaitIdea, handleGenerating, handlePreviewAction,
   handleUnexpectedText,

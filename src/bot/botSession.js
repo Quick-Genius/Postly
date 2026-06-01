@@ -42,6 +42,27 @@ async function clearSession(platform, chatId) {
   await redis.del(keyFor(platform, chatId));
 }
 
+// ── Linking Tokens ────────────────────────────────────────────────────────────
+
+const LINK_TOKEN_TTL = 15 * 60; // 15 minutes
+const linkTokenKey = (token) => `link_token:${token}`;
+
+async function setLinkToken(token, platform, chatId) {
+  const redis = await connectRedis();
+  await redis.setEx(linkTokenKey(token), LINK_TOKEN_TTL, JSON.stringify({ platform, chatId }));
+}
+
+async function getLinkToken(token) {
+  const redis = await connectRedis();
+  const raw   = await redis.get(linkTokenKey(token));
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function clearLinkToken(token) {
+  const redis = await connectRedis();
+  await redis.del(linkTokenKey(token));
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**

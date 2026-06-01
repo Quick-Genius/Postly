@@ -63,6 +63,41 @@ async function login({ email, password }) {
   return issueTokenPair(user.id);
 }
 
+async function upsertClerkUser({ clerkId, email, name, role }) {
+  let user = await prisma.user.findUnique({ where: { clerkId } });
+
+  if (!user) {
+    // Check if a user with this email already exists without a clerkId
+    user = await prisma.user.findUnique({ where: { email } });
+
+    if (user) {
+      // Link the existing account to Clerk
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { 
+          clerkId, 
+          name: name || user.name,
+          role: role || user.role,
+        },
+      });
+    } else {
+      // Create a new user
+      const dummyPasswordHash = await hashPassword(generateOpaqueToken());
+      user = await prisma.user.create({
+        data: {
+          email,
+          clerkId,
+          name: name || 'Clerk User',
+          passwordHash: dummyPasswordHash, // clerk users don't use this, but DB requires it
+          role: role || 'USER',
+        },
+      });
+    }
+  }
+
+  return issueTokenPair(user.id);
+}
+
 async function rotateRefreshToken(rawToken) {
   if (!rawToken || typeof rawToken !== 'string') {
     throw new AuthError('Invalid refresh token', 401);
@@ -116,6 +151,7 @@ module.exports = {
   AuthError,
   register,
   login,
+  upsertClerkUser,
   rotateRefreshToken,
   logout,
   getUserById,

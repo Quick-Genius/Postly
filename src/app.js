@@ -12,6 +12,8 @@ const contentRouter   = require('./routes/content.routes');
 const postsRouter     = require('./routes/posts.routes');
 const dashboardRouter = require('./routes/dashboard.routes');
 const telegramRouter  = require('./routes/telegram.routes');
+const botRouter       = require('./routes/bot.routes');
+const adminRouter     = require('./routes/admin.routes');
 const webhookRouter   = require('./routes/webhook.routes');
 const legalRouter     = require('./routes/legal.routes');
 const { getPrivacyPolicy, getTerms } = require('./controllers/legal.controller');
@@ -61,6 +63,8 @@ app.use('/api/content',   contentRouter);
 app.use('/api/posts',     postsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/', webhookRouter);
+app.use('/api/bot', botRouter);
+app.use('/api/admin', adminRouter);
 // Telegram webhook — mounted outside JWT auth; secured by TELEGRAM_WEBHOOK_SECRET
 // /api/telegram/webhook  — original path (kept for compatibility)
 // /api/bot/telegram      — canonical production path registered with Telegram

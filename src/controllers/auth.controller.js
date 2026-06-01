@@ -67,6 +67,20 @@ async function login(req, res, next) {
   }
 }
 
+async function syncClerk(req, res, next) {
+  try {
+    const { clerkId, email, name, role } = req.body;
+    if (!clerkId || !email) {
+      throw badRequest('clerkId and email are required');
+    }
+
+    const tokens = await authService.upsertClerkUser({ clerkId, email, name, role });
+    res.status(200).json(tokens);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function refresh(req, res, next) {
   try {
     const token = req.body?.refresh_token;
@@ -100,4 +114,4 @@ async function me(req, res, next) {
   }
 }
 
-module.exports = { register, login, refresh, logout, me, AuthError };
+module.exports = { register, login, syncClerk, refresh, logout, me, AuthError };
