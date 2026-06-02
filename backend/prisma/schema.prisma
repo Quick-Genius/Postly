@@ -1,0 +1,282 @@
+// Postly — SaaS Prisma schema
+// Designed for multi-tenancy, OAuth-only connections, and seamless bot integration.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
+enum Platform {
+  TWITTER
+  LINKEDIN
+  INSTAGRAM
+  FACEBOOK
+  THREADS
+}
+
+enum PostType {
+  TEXT
+  IMAGE
+  VIDEO
+  CAROUSEL
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  QUEUED
+  PUBLISHED
+  PARTIAL
+  FAILED
+  CANCELED
+}
+
+enum PlatformPostStatus {
+  PENDING
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+// ─── Models ──────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  clerkId         String?  @unique @map("clerk_id")
+  role            Role     @default(USER)
+  name            String
+  bio             String?
+  defaultTone     String?  @map("default_tone")
+  defaultLanguage String?  @map("default_language")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  socialAccounts      SocialAccount[]
+  whatsappConnections WhatsappConnection[]
+  telegramConnections TelegramConnection[]
+  activityLogs        UserActivityLog[]
+  postAnalytics       PostAnalytic[]
+  userMetric          UserMetric?
+  aiKey               AiKey?
+  posts               Post[]
+  refreshTokens       RefreshToken[]
+
+  @@index([email])
+  @@index([clerkId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model SocialAccount {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  platform        Platform
+  platformUserId  String?   @map("platform_user_id")
+  accessTokenEnc  String    @map("access_token_enc")
+  refreshTokenEnc String?   @map("refresh_token_enc")
+  expiresAt       DateTime? @map("expires_at")
+  handle          String
+  connectedAt     DateTime  @default(now()) @map("connected_at")
+  lastSync        DateTime? @map("last_sync")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
+  @@map("social_accounts")
+}
+
+model WhatsappConnection {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  phoneNumber String   @unique @map("phone_number")
+  connectedAt DateTime @default(now()) @map("connected_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("whatsapp_connections")
+}
+
+model TelegramConnection {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  telegramChatId String   @unique @map("telegram_chat_id")
+  connectedAt    DateTime @default(now()) @map("connected_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("telegram_connections")
+}
+
+model AiKey {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @map("user_id") @db.Uuid
+  openaiKeyEnc    String?  @map("openai_key_enc")
+  anthropicKeyEnc String?  @map("anthropic_key_enc")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_keys")
+}
+
+model Post {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  idea      String     @db.Text
+  postType  PostType   @default(TEXT) @map("post_type")
+  tone      String?
+  language  String?
+  modelUsed String?    @map("model_used")
+  publishAt DateTime?  @map("publish_at")
+  status    PostStatus @default(DRAFT)
+  topics    String[]   @default([])
+  deletedAt DateTime?  @map("deleted_at")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformPosts PlatformPost[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([publishAt])
+  @@index([deletedAt])
+  @@map("posts")
+}
+
+model PlatformPost {
+  id           String             @id @default(uuid()) @db.Uuid
+  postId       String             @map("post_id") @db.Uuid
+  platform     Platform
+  content      String             @db.Text
+  status       PlatformPostStatus @default(PENDING)
+  publishedAt  DateTime?          @map("published_at")
+  publishedUrl String?            @map("published_url") @db.Text
+  errorMessage String?            @map("error_message") @db.Text
+  attempts     Int                @default(0)
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([status])
+  @@map("platform_posts")
+}
+
+// ─── Analytics & BI Models ──────────────────────────────────────
+
+model UserActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  eventType String   @map("event_type")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("user_activity_logs")
+}
+
+model PostAnalytic {
+  id           String    @id @default(uuid()) @db.Uuid
+  postId       String    @unique @map("post_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  platform     Platform
+  topic        String?
+  status       PostStatus
+  failureReason String?  @map("failure_reason")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  publishedAt  DateTime? @map("published_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([platform])
+  @@index([topic])
+  @@index([status])
+  @@map("post_analytics")
+}
+
+model PlatformAnalytic {
+  id          String   @id @default(uuid()) @db.Uuid
+  platform    Platform
+  metricName  String   @map("metric_name")
+  metricValue Float    @map("metric_value")
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  @@index([platform])
+  @@index([metricName])
+  @@map("platform_analytics")
+}
+
+model TopicAnalytic {
+  id          String   @id @default(uuid()) @db.Uuid
+  topic       String   @unique
+  usageCount  Int      @default(0) @map("usage_count")
+  growthRate  Float    @default(0) @map("growth_rate")
+  trendScore  Float    @default(0) @map("trend_score")
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  @@index([trendScore])
+  @@map("topic_analytics")
+}
+
+model SystemMetric {
+  id          String   @id @default(uuid()) @db.Uuid
+  metricName  String   @map("metric_name")
+  metricValue Float    @map("metric_value")
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  @@index([metricName])
+  @@index([recordedAt])
+  @@map("system_metrics")
+}
+
+model UserMetric {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @unique @map("user_id") @db.Uuid
+  postsCreated   Int      @default(0) @map("posts_created")
+  postsPublished Int      @default(0) @map("posts_published")
+  failedPosts    Int      @default(0) @map("failed_posts")
+  lastActive     DateTime @default(now()) @map("last_active")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_metrics")
+}
+

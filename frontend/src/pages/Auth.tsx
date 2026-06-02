@@ -10,7 +10,6 @@ export default function Auth() {
   const { isSignedIn, user } = useUser();
   const { getToken } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [role, setRole] = useState<'USER' | 'ADMIN' | 'GUEST'>('USER');
 
   useEffect(() => {
     if (botLink) {
@@ -23,15 +22,11 @@ export default function Auth() {
       if (isSignedIn && user) {
         try {
           await getToken();
-          const response = await api.post('/auth/clerk-sync', {
+          await api.post('/auth/clerk-sync', {
             clerkId: user.id,
             email: user.primaryEmailAddress?.emailAddress,
             name: user.fullName,
-            role: role,
           });
-
-          const { access_token } = response.data;
-          localStorage.setItem('access_token', access_token);
 
           const storedBotLink = sessionStorage.getItem('bot_link');
           if (storedBotLink) {
@@ -75,19 +70,6 @@ export default function Auth() {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-            <span>Login as:</span>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as any)}
-              className="bg-gray-600 border-none rounded text-sm p-1"
-            >
-              <option value="USER">User</option>
-              <option value="GUEST">Guest</option>
-              <option value="ADMIN">Admin</option>
-            </select>
-          </div>
-          
           <div className="flex justify-center">
             {mode === 'login' ? (
               <SignIn appearance={{ baseTheme: undefined }} />

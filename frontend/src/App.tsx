@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ClerkProvider, SignIn, SignUp } from '@clerk/clerk-react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
+import Platforms from './pages/Platforms';
+import History from './pages/History';
 import AdminDashboard from './pages/AdminDashboard';
 import Auth from './pages/Auth';
 import Profile from './pages/Profile';
@@ -23,6 +25,8 @@ function App() {
           
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/platforms" element={<Platforms />} />
+            <Route path="/history" element={<History />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/profile" element={<Profile />} />
           </Route>

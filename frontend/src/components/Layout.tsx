@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, User, LogOut, Send, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, User, LogOut, Send, ShieldCheck, Share2, History } from 'lucide-react';
 import { useClerk, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
@@ -24,6 +24,8 @@ export default function Layout() {
 
   const navItems = [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { label: 'Platforms', icon: Share2, path: '/platforms' },
+    { label: 'History', icon: History, path: '/history' },
     { label: 'Profile', icon: User, path: '/profile' },
   ];
 
