@@ -168,9 +168,87 @@ async function getTopicBI(req, res, next) {
   }
 }
 
+async function getGlobalStats(req, res, next) {
+  try {
+    const [usersCount, postsCount, platformStats, topics] = await Promise.all([
+      prisma.user.count(),
+      prisma.post.count(),
+      prisma.platformPost.groupBy({
+        by: ['platform'],
+        _count: { id: true }
+      }),
+      prisma.topicAnalytic.findMany({
+        take: 10,
+        orderBy: { usageCount: 'desc' }
+      })
+    ]);
+
+    const platforms = platformStats.map(p => ({
+      platform: p.platform.toLowerCase(),
+      count: p._count.id
+    }));
+
+    const trendingTopics = topics.map(t => ({
+      name: t.topic,
+      count: t.usageCount
+    }));
+
+    return res.status(200).json({
+      users: usersCount,
+      posts: postsCount,
+      platforms,
+      trendingTopics
+    });
+  } catch (err) {
+    logger.error('Failed to get global stats', { err });
+    return next(err);
+  }
+}
+
+async function getUserAnalytics(req, res, next) {
+  try {
+    const users = await prisma.user.findMany({
+      include: {
+        posts: {
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            platformPosts: {
+              select: { platform: true }
+            }
+          }
+        },
+        _count: {
+          select: { posts: true }
+        }
+      }
+    });
+
+    const result = users.map(u => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      postCount: u._count.posts,
+      recentActivity: u.posts.map(p => ({
+        createdAt: p.createdAt,
+        status: p.status,
+        platformPosts: p.platformPosts
+      }))
+    }));
+
+    return res.status(200).json(result);
+  } catch (err) {
+    logger.error('Failed to get user analytics', { err });
+    return next(err);
+  }
+}
+
 module.exports = {
   getBIOverview,
   getUserBI,
   getPlatformBI,
-  getTopicBI
+  getTopicBI,
+  getGlobalStats,
+  getUserAnalytics
 };

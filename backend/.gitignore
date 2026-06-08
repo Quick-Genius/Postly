@@ -20,3 +20,4 @@ coverage/
 
 # ARCHITECTURE.md
 claude.md
+node_modules.nosync 

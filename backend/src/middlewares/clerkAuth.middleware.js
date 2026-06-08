@@ -2,55 +2,71 @@
 
 const jwt = require('jsonwebtoken');
 const env = require('../config/env');
+const prisma = require('../config/prisma');
+const { verifyAccessToken } = require('../utils/jwt');
 
 /**
- * Clerk authentication middleware.
+ * Clerk & Postly unified authentication middleware for OAuth routes.
  *
  * Purpose:
- *  - Require a valid Clerk JWT in Authorization: Bearer <token>
- *  - Attach req.userId for downstream OAuth connect initiation
- *  - Also validates that req.userId maps to a local Postly user (by clerkId)
- *
- * Notes:
- *  - OAuth connect is only initiated after Clerk login on the frontend.
- *  - Callback routes remain un-authenticated (recovered via OAuth state in Redis).
+ *  - Support token extraction from Authorization header (Bearer) or ?token= query param
+ *  - Support verification of Clerk JWT tokens (using CLERK_JWT_PUBLIC_KEY / CLERK_SECRET_KEY)
+ *  - Support verification of Postly JWT tokens (using JWT_SECRET)
+ *  - Attach database user UUID to req.userId for downstream services
  */
 async function clerkAuth(req, res, next) {
   try {
+    let token = null;
     const authHeader = req.get('authorization') || '';
-    const [scheme, token] = authHeader.split(' ');
+    const [scheme, headerToken] = authHeader.split(' ');
 
-    if (scheme !== 'Bearer' || !token) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    if (scheme === 'Bearer' && headerToken) {
+      token = headerToken;
+    } else {
+      token = req.query?.token || null;
     }
 
-    // Current backend stack already uses jsonwebtoken elsewhere; keep dependency footprint minimal.
-    // Clerk JWT verification is performed using Clerk's public key or shared secret.
-    // If your env is configured for Clerk JWT verification via JWKS, implement there.
-    //
-    // Fallback:
-    // - if CLERK_JWT_ISSUER/CLERK_JWT_AUDIENCE + a shared secret/public key is configured,
-    //   you can verify with jsonwebtoken directly.
-    //
-    // This project already has JWT utils; we keep it centralized in oauth.service when needed.
-    const verified = jwt.verify(token, env.CLERK_JWT_PUBLIC_KEY || env.CLERK_JWT_SECRET, {
-      issuer: env.CLERK_JWT_ISSUER,
-      audience: env.CLERK_JWT_AUDIENCE,
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: Missing token' });
+    }
+
+    // Try verifying as Postly Access Token first
+    try {
+      const payload = verifyAccessToken(token);
+      if (payload?.sub) {
+        req.userId = payload.sub; // This is already the user's DB UUID
+        return next();
+      }
+    } catch (e) {
+      // Not a valid Postly token, fallback to verifying as a Clerk token
+      console.log('Postly token verification failed:', e.message);
+    }
+
+    // Verify as Clerk JWT
+    const clerkKey = env.clerkSecretKey || env.clerkPublishableKey || env.CLERK_JWT_PUBLIC_KEY || env.CLERK_JWT_SECRET;
+    const verified = jwt.verify(token, clerkKey, {
       algorithms: ['RS256', 'HS256'],
     });
 
-    // Clerk user id is in `sub` or `user_id` depending on config.
-    // We support both and normalize.
     const clerkId = verified.sub || verified.user_id || verified.clerk_id;
-    if (!clerkId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!clerkId) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid Clerk claim' });
+    }
 
-    // Attach local identity for downstream handlers/services.
-    // oauth.controller + oauth.service currently rely on req.userId.
-    req.userId = clerkId;
+    // Map Clerk user to local DB User UUID
+    const user = await prisma.user.findUnique({ where: { clerkId } });
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: User not synchronized' });
+    }
 
+    req.userId = user.id; // Map Clerk identity to DB UUID
     return next();
   } catch (err) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    console.error('clerkAuth verification failed!');
+    console.error('- Token received:', token);
+    console.error('- Error message:', err.message);
+    console.error('- Error stack:', err.stack);
+    return res.status(401).json({ error: 'Unauthorized: Token verification failed', details: err.message });
   }
 }
 

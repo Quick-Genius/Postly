@@ -167,6 +167,7 @@ model Post {
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   platformPosts PlatformPost[]
+  postAnalytic  PostAnalytic?
 
   @@index([userId])
   @@index([status])

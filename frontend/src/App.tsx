@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ClerkProvider, SignIn, SignUp } from '@clerk/clerk-react';
+import { ClerkProvider, AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Platforms from './pages/Platforms';
@@ -20,8 +20,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
-          <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" />} />
-          <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" />} />
+          <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
           
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
