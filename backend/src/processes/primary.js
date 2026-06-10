@@ -8,8 +8,25 @@ const logger = require('../utils/logger').child({ subsystem: 'primary', pid: pro
 
 async function main() {
   const config = loadEnvConfig();
+
+  if (!config.multiProcessEnabled) {
+    logger.info('ENABLE_MULTI_PROCESS is disabled — running single-process mode (api + worker + bot in one process)', {
+      event: 'single_process_mode'
+    });
+    require('../server');
+    return;
+  }
+
+  logger.info('ENABLE_MULTI_PROCESS is enabled — running multi-process mode', {
+    event: 'multi_process_mode',
+    maxThreads: config.maxThreads,
+    clusterWorkers: config.clusterWorkers,
+    workerReplicas: config.workerReplicas,
+    botReplicas: config.botReplicas
+  });
+
   const manager = createProcessManager(config);
-  
+
   const watchdog = createWatchdog({
     intervalMs: config.healthCheckIntervalMs,
     processManager: manager

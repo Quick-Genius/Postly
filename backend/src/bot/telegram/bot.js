@@ -107,18 +107,4 @@ if (env.telegramBotToken) {
   });
 }
 
-if (env.telegramBotToken) {
-  const { registerGracefulShutdown } = require('../../lib/gracefulShutdown');
-  
-  process.on('uncaughtException', (err) => {
-    logger.error('uncaughtException', { err });
-    process.kill(process.pid, 'SIGTERM');
-  });
-
-  process.on('unhandledRejection', (reason) => {
-    logger.error('unhandledRejection', { reason });
-    process.kill(process.pid, 'SIGTERM');
-  });
-}
-
 module.exports = { bot, handleWebhook };

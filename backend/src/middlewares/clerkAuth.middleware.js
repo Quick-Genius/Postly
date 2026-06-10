@@ -10,13 +10,13 @@ const { verifyAccessToken } = require('../utils/jwt');
  *
  * Purpose:
  *  - Support token extraction from Authorization header (Bearer) or ?token= query param
- *  - Support verification of Clerk JWT tokens (using CLERK_JWT_PUBLIC_KEY / CLERK_SECRET_KEY)
+ *  - Support verification of Clerk JWT tokens (using CLERK_SECRET_KEY)
  *  - Support verification of Postly JWT tokens (using JWT_SECRET)
  *  - Attach database user UUID to req.userId for downstream services
  */
 async function clerkAuth(req, res, next) {
+  let token = null;
   try {
-    let token = null;
     const authHeader = req.get('authorization') || '';
     const [scheme, headerToken] = authHeader.split(' ');
 
@@ -42,9 +42,14 @@ async function clerkAuth(req, res, next) {
       console.log('Postly token verification failed:', e.message);
     }
 
-    // Verify as Clerk JWT
-    const clerkKey = env.clerkSecretKey || env.clerkPublishableKey || env.CLERK_JWT_PUBLIC_KEY || env.CLERK_JWT_SECRET;
-    const verified = jwt.verify(token, clerkKey, {
+    // Verify as Clerk JWT. Only the Clerk secret key is an acceptable
+    // verification key here — the publishable key is a PUBLIC value, and
+    // accepting it (or any other fallback) would let an attacker forge an
+    // HS256 token "signed" with a key they already know.
+    if (!env.clerkSecretKey) {
+      return res.status(401).json({ error: 'Unauthorized: Clerk auth not configured' });
+    }
+    const verified = jwt.verify(token, env.clerkSecretKey, {
       algorithms: ['RS256', 'HS256'],
     });
 
@@ -62,10 +67,7 @@ async function clerkAuth(req, res, next) {
     req.userId = user.id; // Map Clerk identity to DB UUID
     return next();
   } catch (err) {
-    console.error('clerkAuth verification failed!');
-    console.error('- Token received:', token);
-    console.error('- Error message:', err.message);
-    console.error('- Error stack:', err.stack);
+    console.error('clerkAuth verification failed:', err.message);
     return res.status(401).json({ error: 'Unauthorized: Token verification failed', details: err.message });
   }
 }

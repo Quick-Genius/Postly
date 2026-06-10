@@ -9,10 +9,14 @@ const logger = require('../utils/logger').child('AdminBI');
 
 async function getBIOverview(req, res, next) {
   try {
-    const now = new Date();
-    const todayStart = new Date(now.setHours(0, 0, 0, 0));
-    const weekStart = new Date(now.setDate(now.getDate() - 7));
-    const monthStart = new Date(now.setMonth(now.getMonth() - 1));
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const weekStart = new Date(todayStart);
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const monthStart = new Date(todayStart);
+    monthStart.setMonth(monthStart.getMonth() - 1);
 
     const [
       totalUsers,

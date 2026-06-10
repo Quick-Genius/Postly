@@ -51,7 +51,7 @@ async function twitterCallback(req, res, next) {
     const result = await oauthService.twitterCallback(code, state);
     
     try {
-      const { createPublisher } = require('../../lib/ipcChannel');
+      const { createPublisher } = require('../lib/ipcChannel');
       if (!global.ipcPublisher) {
         global.ipcPublisher = createPublisher(process.env.REDIS_URL || 'redis://localhost:6379');
       }
@@ -104,7 +104,7 @@ async function linkedinCallback(req, res, next) {
     const result = await oauthService.linkedinCallback(code, state);
 
     try {
-      const { createPublisher } = require('../../lib/ipcChannel');
+      const { createPublisher } = require('../lib/ipcChannel');
       if (!global.ipcPublisher) {
         global.ipcPublisher = createPublisher(process.env.REDIS_URL || 'redis://localhost:6379');
       }
