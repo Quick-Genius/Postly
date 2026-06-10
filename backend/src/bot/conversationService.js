@@ -21,7 +21,7 @@ const { generateContent }   = require('../services/content.service');
 const postsService          = require('../services/posts.service');
 const userService           = require('../services/user.service');
 const { verifyAccessToken } = require('../utils/jwt');
-const botSession            = require('./botSession');
+const getBotSession         = () => require('./botSession');
 const env                   = require('../config/env');
 const crypto                = require('crypto');
 const logger                = require('../utils/logger').child('Conversation');
@@ -132,6 +132,16 @@ function reply(replyText, options = null, choicesType = null, updatedSession) {
 /** Returns the platform-specific start/help command prefix. */
 const cmdPrefix = (platform) => (platform === 'telegram' ? '/' : '');
 
+function getHelpText(pfx) {
+  return `📖 Postly Bot — Commands\n\n` +
+    `${pfx}start — Create a new post / Link account\n` +
+    `${pfx}restart — Restart from the first prompt\n` +
+    `${pfx}end — End the current conversation\n` +
+    `${pfx}status — View last 5 posts\n` +
+    `${pfx}accounts — View connected social accounts\n` +
+    `${pfx}help — Show this message`;
+}
+
 // ── Command handler ───────────────────────────────────────────────────────────
 
 /**
@@ -148,25 +158,26 @@ async function handleCommand({ command, args, platform, chatId, session }) {
     case 'start': {
       // restart behaves like start after wiping in-progress flow state
       // while preserving the linked user.
-      const resetBase = botSession.blankFlow(userId);
+      const resetBase = getBotSession().blankFlow(userId);
 
       if (!userId) {
         const token = crypto.randomUUID();
-        await botSession.setLinkToken(token, platform, chatId);
+        await getBotSession().setLinkToken(token, platform, chatId);
         const linkUrl = `${env.frontendUrl}/auth?bot_link=${token}`;
 
         return reply(
           `👋 Welcome to Postly!\n\n` +
           `Please link your account to get started:\n` +
           `${linkUrl}\n\n` +
-          `Once authenticated, you'll be able to create posts directly from here.`,
+          `Once authenticated, you'll be able to create posts directly from here.\n\n` +
+          getHelpText(pfx),
           null, null, session,
         );
       }
       const newSess = { ...resetBase, state: 'SELECT_TYPE', pendingChoices: TYPE_CHOICES };
-      await botSession.setSession(platform, chatId, newSess);
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(
-        '✨ Let\'s create a post!\n\nWhat type of content is this?',
+        `✨ Let's create a post!\n\nWhat type of content is this?\n\n` + getHelpText(pfx),
         TYPE_CHOICES, 'type', newSess,
       );
     }
@@ -175,7 +186,7 @@ async function handleCommand({ command, args, platform, chatId, session }) {
     case 'restart': {
       if (!userId) {
         const token = crypto.randomUUID();
-        await botSession.setLinkToken(token, platform, chatId);
+        await getBotSession().setLinkToken(token, platform, chatId);
         const linkUrl = `${env.frontendUrl}/auth?bot_link=${token}`;
 
         return reply(
@@ -186,8 +197,8 @@ async function handleCommand({ command, args, platform, chatId, session }) {
           null, null, session,
         );
       }
-      const newSess = { ...botSession.blankFlow(userId), state: 'SELECT_TYPE', pendingChoices: TYPE_CHOICES };
-      await botSession.setSession(platform, chatId, newSess);
+      const newSess = { ...getBotSession().blankFlow(userId), state: 'SELECT_TYPE', pendingChoices: TYPE_CHOICES };
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(
         '🔁 Flow restarted.\n\nWhat type of content is this?',
         TYPE_CHOICES, 'type', newSess,
@@ -196,8 +207,8 @@ async function handleCommand({ command, args, platform, chatId, session }) {
 
     // ── end ───────────────────────────────────────────────────────────────────
     case 'end': {
-      const newSess = { ...botSession.blankFlow(userId), state: 'ENDED' };
-      await botSession.setSession(platform, chatId, newSess);
+      const newSess = { ...getBotSession().blankFlow(userId), state: 'ENDED' };
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(
         `🛑 Conversation ended.\n\nSend ${pfx}restart to begin again.`,
         null, null, newSess,
@@ -243,13 +254,7 @@ async function handleCommand({ command, args, platform, chatId, session }) {
     // ── help ──────────────────────────────────────────────────────────────────
     case 'help': {
       return reply(
-        `📖 Postly Bot — Commands\n\n` +
-        `${pfx}start — Create a new post / Link account\n` +
-        `${pfx}restart — Restart from the first prompt\n` +
-        `${pfx}end — End the current conversation\n` +
-        `${pfx}status — View last 5 posts\n` +
-        `${pfx}accounts — View connected social accounts\n` +
-        `${pfx}help — Show this message`,
+        getHelpText(pfx),
         null, null, session,
       );
     }
@@ -286,12 +291,12 @@ async function processMessage({ platform, chatId, session, action, text }) {
     // Direct Prompt Detection: if user sends a long message, assume it's a post idea
     if (text && text.length > 20) {
       const newSess = { 
-        ...botSession.blankFlow(userId), 
+        ...getBotSession().blankFlow(userId), 
         state: 'SELECT_TYPE', 
         idea: text, // save the text as the idea immediately
         pendingChoices: TYPE_CHOICES 
       };
-      await botSession.setSession(platform, chatId, newSess);
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(
         `I've captured your idea: "${text.slice(0, 50)}..."\n\nTo continue, what type of content is this?`,
         TYPE_CHOICES, 'type', newSess,
@@ -323,7 +328,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     const contentType = action.slice('type:'.length);
     const choices     = buildPlatformChoices([]);
     const newSess     = { ...session, state: 'SELECT_PLATFORMS', contentType, pendingChoices: choices };
-    await botSession.setSession(platform, chatId, newSess);
+    await getBotSession().setSession(platform, chatId, newSess);
     log.info('State transition', { from: 'SELECT_TYPE', to: 'SELECT_PLATFORMS', contentType });
     return reply(
       `✅ Type: ${contentType}\n\nSelect platforms (you can choose multiple):`,
@@ -357,7 +362,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
       const updated = [...new Set([...current, ...requested])];
       const choices = buildPlatformChoices(updated);
       const newSess = { ...session, platforms: updated, pendingChoices: choices };
-      await botSession.setSession(platform, chatId, newSess);
+      await getBotSession().setSession(platform, chatId, newSess);
       log.info('Platform selection updated (multi)', { selectedPlatforms: updated });
 
       if (isMultiDone) {
@@ -365,7 +370,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
           return reply('⚠️ Select at least one platform first.', choices, 'platform', newSess);
         }
         const toneSess = { ...newSess, state: 'SELECT_TONE', pendingChoices: TONE_CHOICES };
-        await botSession.setSession(platform, chatId, toneSess);
+        await getBotSession().setSession(platform, chatId, toneSess);
         return reply(
           `✅ Platforms: ${selectedPlatformsText(updated)}\n\nChoose a tone for your content:`,
           TONE_CHOICES, 'tone', toneSess,
@@ -384,7 +389,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
         return reply('⚠️ Select at least one platform first.', choices, 'platform', session);
       }
       const newSess      = { ...session, state: 'SELECT_TONE', pendingChoices: TONE_CHOICES };
-      await botSession.setSession(platform, chatId, newSess);
+      await getBotSession().setSession(platform, chatId, newSess);
       log.info('State transition', { from: 'SELECT_PLATFORMS', to: 'SELECT_TONE', platforms: session.platforms });
       return reply(
         `✅ Platforms: ${selectedPlatformsText(session.platforms)}\n\nChoose a tone for your content:`,
@@ -406,7 +411,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
       : (alreadySelected ? current.filter((p) => p !== value) : [...current, value]);
     const choices  = buildPlatformChoices(updated);
     const newSess  = { ...session, platforms: updated, pendingChoices: choices };
-    await botSession.setSession(platform, chatId, newSess);
+    await getBotSession().setSession(platform, chatId, newSess);
     log.info('Platform selection updated', { selectedPlatforms: updated });
     const toggleMsg = platform === 'whatsapp'
       ? (alreadySelected
@@ -423,7 +428,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     }
     const tone    = action.slice('tone:'.length);
     const newSess = { ...session, state: 'SELECT_MODEL', tone, pendingChoices: MODEL_CHOICES };
-    await botSession.setSession(platform, chatId, newSess);
+    await getBotSession().setSession(platform, chatId, newSess);
     return reply(`✅ Tone: ${tone}\n\nChoose an AI model:`, MODEL_CHOICES, 'model', newSess);
   }
 
@@ -435,7 +440,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     const model      = action.slice('model:'.length);
     const modelLabel = model === 'openai' ? 'GPT-4o' : 'Claude Sonnet';
     const newSess    = { ...session, state: 'AWAIT_IDEA', model, pendingChoices: null };
-    await botSession.setSession(platform, chatId, newSess);
+    await getBotSession().setSession(platform, chatId, newSess);
     return reply(
       `✅ Model: ${modelLabel}\n\n💡 Send me your idea (max ${IDEA_MAX_LENGTH} characters):`,
       null, null, newSess,
@@ -457,7 +462,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
     }
 
     // Persist GENERATING before the async AI call so concurrent messages are handled.
-    await botSession.setSession(platform, chatId, { ...session, state: 'GENERATING', idea });
+    await getBotSession().setSession(platform, chatId, { ...session, state: 'GENERATING', idea });
 
     try {
       const result = await generateContent(
@@ -474,11 +479,11 @@ async function processMessage({ platform, chatId, session, action, text }) {
         tokensUsed:       result.tokens_used,
         pendingChoices:   CONFIRM_CHOICES,
       };
-      await botSession.setSession(platform, chatId, newSess);
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(buildPreviewText(result.generated), CONFIRM_CHOICES, 'confirm', newSess);
     } catch (err) {
       // Roll back so the user can retry.
-      await botSession.setSession(platform, chatId, { ...session, state: 'AWAIT_IDEA', idea });
+      await getBotSession().setSession(platform, chatId, { ...session, state: 'AWAIT_IDEA', idea });
       return reply(
         `❌ Generation failed: ${err.message}\n\nPlease try a different idea.`,
         null, null, { ...session, state: 'AWAIT_IDEA' },
@@ -504,13 +509,13 @@ async function processMessage({ platform, chatId, session, action, text }) {
 
     if (confirmAction === 'edit_idea') {
       const newSess = { ...session, state: 'AWAIT_IDEA', pendingChoices: null };
-      await botSession.setSession(platform, chatId, newSess);
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(`✏️ Send me your updated idea (max ${IDEA_MAX_LENGTH} characters):`, null, null, newSess);
     }
 
     if (confirmAction === 'cancel') {
-      const newSess = botSession.blankFlow(userId);
-      await botSession.setSession(platform, chatId, newSess);
+      const newSess = getBotSession().blankFlow(userId);
+      await getBotSession().setSession(platform, chatId, newSess);
       return reply(
         `❌ Post canceled. Send ${cmdPrefix(platform)}start whenever you're ready.`,
         null, null, newSess,
@@ -552,8 +557,8 @@ async function processMessage({ platform, chatId, session, action, text }) {
           topics:     Array.from(allTopics),
         });
 
-        const newSess = botSession.blankFlow(userId);
-        await botSession.setSession(platform, chatId, newSess);
+        const newSess = getBotSession().blankFlow(userId);
+        await getBotSession().setSession(platform, chatId, newSess);
 
         const platformLines = post.platformPosts
           .map((pp) => `${PLATFORM_EMOJIS[pp.platform.toLowerCase()] ?? '📱'} ${pp.platform}: queued`)
