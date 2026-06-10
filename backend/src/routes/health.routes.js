@@ -72,14 +72,18 @@ function createHealthRouter(subsystem) {
 
   async function buildHealthResponse() {
     const timeoutPromise = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms));
-    
+    // Remote managed Postgres (e.g. Neon) and Redis can take well over 200ms
+    // to respond, especially after a cold start — 200ms was causing healthy
+    // dependencies to be reported as down on every check.
+    const PING_TIMEOUT_MS = 2000;
+
     let dbOk = false;
     let redisOk = false;
 
     try {
       await Promise.race([
         prisma.$queryRaw`SELECT 1`,
-        timeoutPromise(200)
+        timeoutPromise(PING_TIMEOUT_MS)
       ]);
       dbOk = true;
     } catch (e) {
@@ -90,7 +94,7 @@ function createHealthRouter(subsystem) {
       const redisClient = await connectRedis();
       await Promise.race([
         redisClient.ping(),
-        timeoutPromise(200)
+        timeoutPromise(PING_TIMEOUT_MS)
       ]);
       redisOk = true;
     } catch (e) {
