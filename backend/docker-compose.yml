@@ -17,11 +17,12 @@ services:
       timeout: 3s
       retries: 10
 
-  app:
+  api:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: postly-app
+    command: node src/processes/api.js
+    container_name: postly-api
     restart: unless-stopped
     depends_on:
       redis:
@@ -29,11 +30,59 @@ services:
     env_file:
       - .env
     environment:
-      # Route Redis to the compose service — everything else (DATABASE_URL, secrets)
-      # comes from .env unchanged, so the app talks to Neon DB directly.
       REDIS_URL: redis://redis:6379
-    ports:
-      - "${PORT:-3000}:3000"
+    expose:
+      - "${PORT:-3000}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT:-3000}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: node src/processes/worker.js
+    container_name: postly-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    # deploy:
+    #   replicas: 1
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${WORKER_HEALTH_PORT:-3001}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: node src/processes/bot.js
+    container_name: postly-bot
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${BOT_HEALTH_PORT:-3002}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 volumes:
   redis_data:

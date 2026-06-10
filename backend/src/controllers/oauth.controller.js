@@ -49,6 +49,23 @@ async function twitterCallback(req, res, next) {
     if (!state) return res.status(400).json({ error: 'Missing state parameter' });
 
     const result = await oauthService.twitterCallback(code, state);
+    
+    try {
+      const { createPublisher } = require('../../lib/ipcChannel');
+      if (!global.ipcPublisher) {
+        global.ipcPublisher = createPublisher(process.env.REDIS_URL || 'redis://localhost:6379');
+      }
+      await global.ipcPublisher.publish({
+        type: 'account_linked',
+        userId: result.userId,
+        payload: { platform: 'TWITTER' },
+        timestamp: new Date().toISOString()
+      });
+    } catch (e) {
+      // IPC failure must never break the OAuth success response
+      console.warn('IPC publish failed for account_linked', e);
+    }
+    
     res.status(200).json({ message: 'Twitter account connected successfully', ...result });
   } catch (err) {
     next(err);
@@ -85,6 +102,22 @@ async function linkedinCallback(req, res, next) {
     if (!state) return res.status(400).json({ error: 'Missing state parameter' });
 
     const result = await oauthService.linkedinCallback(code, state);
+
+    try {
+      const { createPublisher } = require('../../lib/ipcChannel');
+      if (!global.ipcPublisher) {
+        global.ipcPublisher = createPublisher(process.env.REDIS_URL || 'redis://localhost:6379');
+      }
+      await global.ipcPublisher.publish({
+        type: 'account_linked',
+        userId: result.userId,
+        payload: { platform: 'LINKEDIN' },
+        timestamp: new Date().toISOString()
+      });
+    } catch (e) {
+      console.warn('IPC publish failed for account_linked', e);
+    }
+
     res.status(200).json({ message: 'LinkedIn account connected successfully', ...result });
   } catch (err) {
     next(err);

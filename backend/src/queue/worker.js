@@ -308,9 +308,22 @@ worker.on('failed', async (job, err) => {
       platformPostId,
       error: errorMessage,
     });
+
+    const { createPublisher } = require('../lib/ipcChannel');
+    if (!global.ipcPublisher) {
+      global.ipcPublisher = createPublisher(process.env.REDIS_URL || 'redis://localhost:6379');
+    }
+    await global.ipcPublisher.publish({
+      type: 'job_failed',
+      userId: job.data.userId,
+      payload: { postId, platformPostId, error: errorMessage },
+      timestamp: new Date().toISOString()
+    }).catch(e => {
+      logger.error('Failed to publish job_failed IPC event', { err: e });
+    });
   } catch (dbErr) {
     // Never let a DB error crash the worker process.
-    logger.error('Failed to write FAILED status to DB', { platformPostId, err: dbErr });
+    logger.error('Failed to write FAILED status to DB or publish IPC', { platformPostId, err: dbErr });
   }
 });
 

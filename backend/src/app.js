@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 
 const env = require('./config/env');
-const healthRouter = require('./routes/health.routes');
+const { router: healthRouter } = require('./routes/health.routes');
 const authRouter = require('./routes/auth.routes');
 const userRouter = require('./routes/user.routes');
 const oauthRouter     = require('./routes/oauth.routes');

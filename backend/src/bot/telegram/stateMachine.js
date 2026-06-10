@@ -90,7 +90,31 @@ async function dispatch(ctx, sess, updateType) {
     return;
   }
 
-  await handler(ctx, sess);
+  const logger = require('../../utils/logger');
+  
+  function stepTimeout(ms, conversationId) {
+    return new Promise((_, reject) => {
+      setTimeout(() => {
+        logger.warn('Conversation step timeout', { event: 'step_timeout', elapsedMs: ms, conversationId });
+        reject(new Error('STEP_TIMEOUT'));
+      }, ms);
+    });
+  }
+
+  const chatId = ctx.chat?.id ?? ctx.from?.id;
+
+  try {
+    await Promise.race([
+      handler(ctx, sess),
+      stepTimeout(10000, chatId)
+    ]);
+  } catch (e) {
+    if (e.message === 'STEP_TIMEOUT') {
+      await ctx.reply("⚠️ Your request timed out. Please try again.").catch(() => {});
+    } else {
+      throw e;
+    }
+  }
 }
 
 module.exports = { dispatch };
