@@ -29,11 +29,17 @@ const env = {
   // OAuth
   twitterClientId: process.env.TWITTER_CLIENT_ID || '',
   twitterClientSecret: process.env.TWITTER_CLIENT_SECRET || '',
-  twitterRedirectUri: process.env.TWITTER_REDIRECT_URI || 'http://localhost:3000/api/oauth/twitter/callback',
+  get twitterRedirectUri() {
+    return process.env.TWITTER_REDIRECT_URI || `${this.baseUrl}/api/oauth/twitter/callback`;
+  },
   linkedinClientId: process.env.LINKEDIN_CLIENT_ID || '',
   linkedinClientSecret: process.env.LINKEDIN_CLIENT_SECRET || '',
-  linkedinRedirectUri: process.env.LINKEDIN_REDIRECT_URI || 'http://localhost:3000/api/oauth/linkedin/callback',
-  oauthCallbackUrl: process.env.OAUTH_CALLBACK_URL || 'http://localhost:3000/api/oauth',
+  get linkedinRedirectUri() {
+    return process.env.LINKEDIN_REDIRECT_URI || `${this.baseUrl}/api/oauth/linkedin/callback`;
+  },
+  get oauthCallbackUrl() {
+    return process.env.OAUTH_CALLBACK_URL || `${this.baseUrl}/api/oauth`;
+  },
   // Telegram Bot (optional — bot feature is disabled when not set)
   telegramBotToken:      process.env.TELEGRAM_BOT_TOKEN      || null,
   telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || null,
@@ -58,7 +64,17 @@ const env = {
     `http://localhost:${process.env.PORT || 3000}`,
   // Keep APP_URL as a legacy alias so existing code (whatsapp.controller) works.
   get appUrl() { return this.baseUrl; },
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  get frontendUrl() {
+    if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL;
+    if (process.env.APP_URL) return process.env.APP_URL;
+
+    const isLocal =
+      this.baseUrl.includes('localhost') ||
+      this.baseUrl.includes('127.0.0.1') ||
+      this.baseUrl.includes('ngrok');
+
+    return isLocal ? 'http://localhost:5173' : 'https://app.postly.com';
+  },
 };
 
 env.isProd = env.nodeEnv === 'production';

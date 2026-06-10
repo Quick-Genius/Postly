@@ -106,4 +106,14 @@ function blankFlow(userId = null) {
   };
 }
 
-module.exports = { getSession, setSession, updateSession, clearSession, blankFlow };
+module.exports = {
+  getSession,
+  setSession,
+  updateSession,
+  clearSession,
+  blankFlow,
+  setLinkToken,
+  getLinkToken,
+  clearLinkToken,
+};
+

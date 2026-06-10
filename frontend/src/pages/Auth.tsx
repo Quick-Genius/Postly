@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useSignIn, useUser, useClerk } from '@clerk/clerk-react';
 import { Send, Sparkles, Mail, Lock, User as UserIcon, AlertCircle } from 'lucide-react';
 import api from '../lib/api';
+import { getCookie, setCookie } from '../lib/cookies';
 
 export default function Auth() {
   const [searchParams] = useSearchParams();
@@ -28,12 +29,30 @@ export default function Auth() {
     }
   }, [botLink]);
 
-  // If local token exists, redirect to dashboard immediately
+  // If local token exists (or can be refreshed), redirect to dashboard immediately
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      navigate('/dashboard');
-    }
+    const checkRedirect = async () => {
+      let token = getCookie('access_token');
+      if (!token) {
+        const refreshToken = getCookie('refresh_token');
+        if (refreshToken) {
+          try {
+            const res = await api.post('/auth/refresh', { refresh_token: refreshToken });
+            if (res.status === 200 && res.data.access_token) {
+              setCookie('access_token', res.data.access_token, 7);
+              setCookie('refresh_token', res.data.refresh_token, 7);
+              token = res.data.access_token;
+            }
+          } catch (e) {
+            // Ignore, user will just see the login form
+          }
+        }
+      }
+      if (token) {
+        navigate('/dashboard');
+      }
+    };
+    checkRedirect();
   }, [navigate]);
 
   // Clerk session synchronization
@@ -57,10 +76,10 @@ export default function Auth() {
           });
 
           if (res.data.access_token) {
-            localStorage.setItem('access_token', res.data.access_token);
+            setCookie('access_token', res.data.access_token, 7);
           }
           if (res.data.refresh_token) {
-            localStorage.setItem('refresh_token', res.data.refresh_token);
+            setCookie('refresh_token', res.data.refresh_token, 7);
           }
 
           const storedBotLink = sessionStorage.getItem('bot_link');
@@ -90,18 +109,18 @@ export default function Auth() {
       if (mode === 'login') {
         const res = await api.post('/auth/login', { email, password });
         if (res.data.access_token) {
-          localStorage.setItem('access_token', res.data.access_token);
+          setCookie('access_token', res.data.access_token, 7);
         }
         if (res.data.refresh_token) {
-          localStorage.setItem('refresh_token', res.data.refresh_token);
+          setCookie('refresh_token', res.data.refresh_token, 7);
         }
       } else {
         const res = await api.post('/auth/register', { email, password, name });
         if (res.data.access_token) {
-          localStorage.setItem('access_token', res.data.access_token);
+          setCookie('access_token', res.data.access_token, 7);
         }
         if (res.data.refresh_token) {
-          localStorage.setItem('refresh_token', res.data.refresh_token);
+          setCookie('refresh_token', res.data.refresh_token, 7);
         }
       }
 

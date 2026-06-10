@@ -1,10 +1,13 @@
 import { Shield, LogOut, Mail, Calendar, Key, AlertCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useClerk } from '@clerk/clerk-react';
+import { removeCookie } from '../lib/cookies';
 import api from '../lib/api';
 
 export default function Profile() {
   const navigate = useNavigate();
+  const { signOut } = useClerk();
   const [dbUser, setDbUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -23,9 +26,14 @@ export default function Profile() {
     fetchProfile();
   }, [navigate]);
 
-  const handleSignOut = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
+  const handleSignOut = async () => {
+    removeCookie('access_token');
+    removeCookie('refresh_token');
+    try {
+      await signOut();
+    } catch (e) {
+      console.error('Failed to sign out from Clerk:', e);
+    }
     navigate('/auth');
   };
 

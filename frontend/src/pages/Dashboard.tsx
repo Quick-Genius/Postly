@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Share2, History, PlusCircle, Sparkles, Calendar, Clock, CheckCircle2, Loader2, Send, X } from 'lucide-react';
 import api from '../lib/api';
+import { getCookie } from '../lib/cookies';
 
 interface SocialAccount {
   id: string;
@@ -87,7 +88,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to verify token before redirecting:', err);
     }
-    const token = localStorage.getItem('access_token');
+    const token = getCookie('access_token');
     window.location.href = `${import.meta.env.VITE_API_URL}/oauth/${platform.toLowerCase()}/connect?token=${token}`;
   };
 

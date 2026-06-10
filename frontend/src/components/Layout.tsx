@@ -1,24 +1,44 @@
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, User, LogOut, Send, ShieldCheck, Share2, History as HistoryIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useClerk } from '@clerk/clerk-react';
+import { getCookie, setCookie, removeCookie } from '../lib/cookies';
 import api from '../lib/api';
 
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { signOut } = useClerk();
   const [role, setRole] = useState<string | null>(null);
   const [name, setName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      navigate('/auth');
-      return;
-    }
+    const checkAuth = async () => {
+      let token = getCookie('access_token');
+      if (!token) {
+        // Try refreshing using refresh_token
+        const refreshToken = getCookie('refresh_token');
+        if (refreshToken) {
+          try {
+            const res = await api.post('/auth/refresh', { refresh_token: refreshToken });
+            if (res.status === 200 && res.data.access_token) {
+              setCookie('access_token', res.data.access_token, 7);
+              setCookie('refresh_token', res.data.refresh_token, 7);
+              token = res.data.access_token;
+            }
+          } catch (e) {
+            console.error('Failed to auto-refresh token:', e);
+          }
+        }
+      }
 
-    const fetchRole = async () => {
+      if (!token) {
+        navigate('/auth');
+        return;
+      }
+
       try {
         const res = await api.get('/auth/me');
         setRole(res.data.user.role);
@@ -27,17 +47,23 @@ export default function Layout() {
         setLoading(false);
       } catch (err) {
         console.error('Failed to fetch role:', err);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+        removeCookie('access_token');
+        removeCookie('refresh_token');
         navigate('/auth');
       }
     };
-    fetchRole();
+
+    checkAuth();
   }, [navigate]);
 
-  const handleSignOut = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
+  const handleSignOut = async () => {
+    removeCookie('access_token');
+    removeCookie('refresh_token');
+    try {
+      await signOut();
+    } catch (e) {
+      console.error('Failed to sign out from Clerk:', e);
+    }
     navigate('/auth');
   };
 

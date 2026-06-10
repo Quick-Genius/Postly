@@ -14,7 +14,7 @@ if (env.twilioAccountSid && env.twilioAuthToken) {
 
 async function linkBot(req, res, next) {
   const { linkToken } = req.body;
-  const userId = req.user.id;
+  const userId = req.userId;
 
   if (!linkToken) {
     return res.status(400).json({ error: 'Missing linkToken' });

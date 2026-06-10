@@ -157,8 +157,8 @@ async function handleCommand({ command, args, platform, chatId, session }) {
 
         return reply(
           `👋 Welcome to Postly!\n\n` +
-          `Please link your account to get started:\n\n` +
-          `🔗 ${linkUrl}\n\n` +
+          `Please link your account to get started:\n` +
+          `${linkUrl}\n\n` +
           `Once authenticated, you'll be able to create posts directly from here.`,
           null, null, session,
         );
@@ -180,8 +180,8 @@ async function handleCommand({ command, args, platform, chatId, session }) {
 
         return reply(
           `👋 Welcome to Postly!\n\n` +
-          `Please link your account to get started:\n\n` +
-          `🔗 ${linkUrl}\n\n` +
+          `Please link your account to get started:\n` +
+          `${linkUrl}\n\n` +
           `Once authenticated, you'll be able to create posts directly from here.`,
           null, null, session,
         );

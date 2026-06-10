@@ -79,9 +79,13 @@ async function handleHelp(ctx) {
 
 async function handleIdle(ctx, sess) {
   const result = await conversationService.processMessage({
-    platform: PLATFORM, chatId: getChatId(ctx), session: sess, action: null, text: null,
+    platform: PLATFORM,
+    chatId: getChatId(ctx),
+    session: sess,
+    action: null,
+    text: ctx.message?.text ?? null,
   });
-  await ctx.reply(result.replyText);
+  await ctx.reply(result.replyText, { reply_markup: buildReplyMarkup(result) });
 }
 
 async function handleSelectType(ctx, sess) {
