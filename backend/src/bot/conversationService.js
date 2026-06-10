@@ -105,6 +105,24 @@ function selectedPlatformsText(platforms = []) {
 }
 
 /**
+ * Returns the set of platform values (lowercase, e.g. "twitter") for which
+ * the user has a connected social account.
+ */
+async function getConnectedPlatforms(userId) {
+  if (!userId) return new Set();
+  try {
+    const accounts = await userService.getSocialAccounts(userId);
+    return new Set(accounts.map((a) => a.platform.toLowerCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+function notConnectedText(value) {
+  return `⚠️ Your ${platformName(value)} account isn't connected yet.\nConnect it here: ${env.frontendUrl}/platforms\n\nThen come back and select it again.`;
+}
+
+/**
  * Plain-text content preview — readable on any platform (no Markdown markers).
  */
 function buildPreviewText(generated) {
@@ -358,27 +376,34 @@ async function processMessage({ platform, chatId, session, action, text }) {
         .filter(Boolean)
         .filter((p) => allowedPlatforms.has(p));
 
+      const connectedPlatforms = await getConnectedPlatforms(userId);
+      const notConnected = requested.filter((p) => !connectedPlatforms.has(p));
+      const toAdd = requested.filter((p) => connectedPlatforms.has(p));
+      const notConnectedNote = notConnected.length
+        ? `\n\n${notConnected.map(notConnectedText).join('\n')}`
+        : '';
+
       const current = session.platforms ?? [];
-      const updated = [...new Set([...current, ...requested])];
+      const updated = [...new Set([...current, ...toAdd])];
       const choices = buildPlatformChoices(updated);
       const newSess = { ...session, platforms: updated, pendingChoices: choices };
       await getBotSession().setSession(platform, chatId, newSess);
-      log.info('Platform selection updated (multi)', { selectedPlatforms: updated });
+      log.info('Platform selection updated (multi)', { selectedPlatforms: updated, notConnected });
 
       if (isMultiDone) {
         if (!updated.length) {
-          return reply('⚠️ Select at least one platform first.', choices, 'platform', newSess);
+          return reply(`⚠️ Select at least one platform first.${notConnectedNote}`, choices, 'platform', newSess);
         }
         const toneSess = { ...newSess, state: 'SELECT_TONE', pendingChoices: TONE_CHOICES };
         await getBotSession().setSession(platform, chatId, toneSess);
         return reply(
-          `✅ Platforms: ${selectedPlatformsText(updated)}\n\nChoose a tone for your content:`,
+          `✅ Platforms: ${selectedPlatformsText(updated)}${notConnectedNote}\n\nChoose a tone for your content:`,
           TONE_CHOICES, 'tone', toneSess,
         );
       }
 
       return reply(
-        `✅ Updated selection.\nSelected: ${selectedPlatformsText(updated)}\nType another platform or "done".`,
+        `✅ Updated selection.\nSelected: ${selectedPlatformsText(updated)}${notConnectedNote}\nType another platform or "done".`,
         choices, 'platform', newSess,
       );
     }
@@ -406,6 +431,20 @@ async function processMessage({ platform, chatId, session, action, text }) {
     // Keep WhatsApp idempotent; preserve toggle UX for Telegram buttons.
     const current  = session.platforms ?? [];
     const alreadySelected = current.includes(value);
+
+    // Only block *new* selections — removing an already-selected platform
+    // (or re-tapping it on WhatsApp) never needs a connection check.
+    if (!alreadySelected) {
+      const connectedPlatforms = await getConnectedPlatforms(userId);
+      if (!connectedPlatforms.has(value)) {
+        const choices = buildPlatformChoices(current);
+        return reply(
+          `${notConnectedText(value)}\n\nSelected: ${selectedPlatformsText(current)}`,
+          choices, 'platform', session,
+        );
+      }
+    }
+
     const updated  = platform === 'whatsapp'
       ? (alreadySelected ? current : [...current, value])
       : (alreadySelected ? current.filter((p) => p !== value) : [...current, value]);
