@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useSignIn, useUser, useClerk } from '@clerk/clerk-react';
 import { Send, Sparkles, Mail, Lock, User as UserIcon, AlertCircle } from 'lucide-react';
 import api from '../lib/api';
-import { getCookie, setCookie } from '../lib/cookies';
+import { getCookie, setCookie, removeCookie } from '../lib/cookies';
 
 export default function Auth() {
   const [searchParams] = useSearchParams();
@@ -26,6 +26,11 @@ export default function Auth() {
   useEffect(() => {
     if (botLink) {
       sessionStorage.setItem('bot_link', botLink);
+      // A Telegram bot_link always means a new or specific user is entering.
+      // Clear any existing JWT cookies so the old session cannot leak into
+      // the new user's context — especially critical for platform connection status.
+      removeCookie('access_token');
+      removeCookie('refresh_token');
     }
   }, [botLink]);
 

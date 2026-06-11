@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Link as LinkIcon, Unlink, Loader2, ArrowLeft, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import api from '../lib/api';
-import { getCookie } from '../lib/cookies';
+import { getCookie, removeCookie } from '../lib/cookies';
 
 // Where to send the user back to after they finish managing platform
 // connections, if they arrived here from a bot's "connect your account" link.
@@ -56,10 +57,71 @@ const SUPPORTED_PLATFORMS = [
 ];
 
 export default function Platforms() {
+  const navigate = useNavigate();
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
+
+  /**
+   * Decodes the `email` claim from a JWT without verifying the signature.
+   * Used purely as a hint for client-side cross-validation — actual authority
+   * comes from the /auth/me response (signed and verified by the backend).
+   */
+  function getEmailFromToken(token: string): string | null {
+    try {
+      const [, payloadB64] = token.split('.');
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+      return payload.email ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Validates that the JWT in the cookie belongs to the currently authenticated
+   * user by calling /auth/me and cross-checking the returned email against the
+   * email embedded in the token.
+   *
+   * Returns the verified userId on success, or null on identity mismatch.
+   * On mismatch the stale cookies are cleared and the user is redirected to /auth.
+   */
+  const validateIdentity = async (): Promise<string | null> => {
+    const token = getCookie('access_token');
+    if (!token) {
+      navigate('/auth');
+      return null;
+    }
+
+    try {
+      const meRes = await api.get('/auth/me');
+      const serverUser = meRes.data.user;
+
+      // Cross-check: the email embedded in the JWT must match the email the
+      // server says this userId owns. A mismatch means the cookie is stale and
+      // belongs to a different user (the Telegram cross-user leakage scenario).
+      const tokenEmail = getEmailFromToken(token);
+      if (tokenEmail && serverUser.email && tokenEmail !== serverUser.email) {
+        console.warn('[Platforms] Identity mismatch: JWT email differs from server user email. Clearing stale session.', {
+          tokenEmail,
+          serverEmail: serverUser.email,
+        });
+        removeCookie('access_token');
+        removeCookie('refresh_token');
+        navigate('/auth');
+        return null;
+      }
+
+      return serverUser.id as string;
+    } catch (err) {
+      console.error('[Platforms] Identity validation failed:', err);
+      // If /auth/me 401s, the token is expired or invalid — redirect to login.
+      removeCookie('access_token');
+      removeCookie('refresh_token');
+      navigate('/auth');
+      return null;
+    }
+  };
 
   const fetchAccounts = async () => {
     try {
@@ -73,7 +135,12 @@ export default function Platforms() {
   };
 
   useEffect(() => {
-    fetchAccounts();
+    // Step 1: Validate identity first to prevent cross-user account leakage,
+    // then fetch accounts only for the verified current user.
+    validateIdentity().then((validatedUserId) => {
+      if (!validatedUserId) return; // navigation already triggered
+      fetchAccounts();
+    });
 
     // Handle the redirect back from the OAuth callback (?connected=/?error=)
     // and remember where to send the user back to if they arrived via a
@@ -100,10 +167,13 @@ export default function Platforms() {
 
   const connectPlatform = async (platform: string) => {
     try {
-      // Fetch user profile first to verify/refresh token via Axios interceptors
-      await api.get('/auth/me');
+      // Re-validate identity before initiating OAuth to ensure the token
+      // we pass to the backend belongs to the correct user.
+      const validatedUserId = await validateIdentity();
+      if (!validatedUserId) return; // identity check failed; navigation already triggered
     } catch (err) {
-      console.error('Failed to verify token before redirecting:', err);
+      console.error('Failed to verify identity before connecting platform:', err);
+      return;
     }
     const token = getCookie('access_token');
     const fromParam = returnTo ? `&from=${returnTo}` : '';

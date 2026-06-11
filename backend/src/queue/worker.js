@@ -71,8 +71,31 @@ function normalizePublishedUrl(platform, result = {}) {
 const platformAdapters = {
   async TWITTER({ accessToken, content }) {
     logger.info('Publishing to Twitter', { preview: content.slice(0, 60) });
-    await new Promise((r) => setTimeout(r, 200));
-    return { published_url: `https://twitter.com/i/web/status/${Date.now()}` };
+    
+    const postRes = await fetch('https://api.twitter.com/2/tweets', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: content }),
+    });
+
+    if (!postRes.ok) {
+      const body = await postRes.text().catch(() => '');
+      const msg = `Twitter API failed (HTTP ${postRes.status}): ${body.slice(0, 200)}`;
+      if (AUTH_FAILURE_STATUSES.has(postRes.status)) {
+        throw new UnrecoverableError(msg);
+      }
+      throw new Error(msg);
+    }
+
+    const parsed = await postRes.json();
+    if (!parsed?.data?.id) {
+      throw new Error('Twitter API succeeded but returned no tweet ID');
+    }
+
+    return { published_url: `https://twitter.com/i/web/status/${parsed.data.id}` };
   },
 
   async LINKEDIN({ accessToken, content }) {
