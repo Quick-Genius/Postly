@@ -121,7 +121,7 @@ async function twitterConnect(userId) {
     code_challenge_method: 'S256',
   });
 
-  return { auth_url: `https://twitter.com/i/oauth2/authorize?${params}` };
+  return { auth_url: `https://x.com/i/oauth2/authorize?${params}` };
 }
 
 /**
