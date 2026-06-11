@@ -91,7 +91,7 @@ async function storeSocialAccount(userId, platform, accessToken, refreshToken, h
  * Step 1 — Generate Twitter authorization URL.
  * Requires an authenticated user (userId from JWT).
  */
-async function twitterConnect(userId) {
+async function twitterConnect(userId, from) {
   const clientId   = env.twitterClientId;
   const redirectUri = env.twitterRedirectUri;
 
@@ -104,10 +104,11 @@ async function twitterConnect(userId) {
   const codeChallenge = generateCodeChallenge(codeVerifier);
 
   await connectRedis();
-  // Store { userId, codeVerifier } — we need both on callback
+  // Store { userId, codeVerifier, from } — `from` lets the callback redirect
+  // the user back to wherever they started (e.g. the Telegram/WhatsApp bot).
   await redis.set(
     `oauth:twitter:state:${state}`,
-    JSON.stringify({ userId, codeVerifier }),
+    JSON.stringify({ userId, codeVerifier, from: from || null }),
     { EX: STATE_TTL_SECONDS },
   );
 
@@ -157,7 +158,7 @@ async function twitterCallback(code, state) {
     throw createError('Corrupted OAuth state — please restart the connect flow', 400);
   }
 
-  const { userId, codeVerifier } = parsed;
+  const { userId, codeVerifier, from } = parsed;
   if (!userId || !codeVerifier) {
     throw createError('Incomplete OAuth state — please restart the connect flow', 400);
   }
@@ -207,7 +208,7 @@ async function twitterCallback(code, state) {
 
   await storeSocialAccount(userId, 'TWITTER', tokens.access_token, tokens.refresh_token ?? null, handle);
 
-  return { platform: 'TWITTER', handle };
+  return { platform: 'TWITTER', handle, userId, from };
 }
 
 // ── LinkedIn OAuth 2.0 ────────────────────────────────────────────────────────
@@ -216,7 +217,7 @@ async function twitterCallback(code, state) {
  * Step 1 — Generate LinkedIn authorization URL.
  * Requires an authenticated user (userId from JWT).
  */
-async function linkedinConnect(userId) {
+async function linkedinConnect(userId, from) {
   const clientId    = env.linkedinClientId;
   const redirectUri = env.linkedinRedirectUri;
 
@@ -230,7 +231,7 @@ async function linkedinConnect(userId) {
   // LinkedIn uses standard OAuth 2.0 (no PKCE required by default)
   await redis.set(
     `oauth:linkedin:state:${state}`,
-    JSON.stringify({ userId }),
+    JSON.stringify({ userId, from: from || null }),
     { EX: STATE_TTL_SECONDS },
   );
 
@@ -279,7 +280,7 @@ async function linkedinCallback(code, state) {
     throw createError('Corrupted OAuth state — please restart the connect flow', 400);
   }
 
-  const { userId } = parsed;
+  const { userId, from } = parsed;
   if (!userId) {
     throw createError('Incomplete OAuth state — please restart the connect flow', 400);
   }
@@ -333,7 +334,7 @@ async function linkedinCallback(code, state) {
     handle,
   );
 
-  return { platform: 'LINKEDIN', handle };
+  return { platform: 'LINKEDIN', handle, userId, from };
 }
 
 module.exports = {

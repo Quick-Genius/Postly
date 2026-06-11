@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Link as LinkIcon, Unlink, Loader2 } from 'lucide-react';
+import { RefreshCw, Link as LinkIcon, Unlink, Loader2, ArrowLeft, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import api from '../lib/api';
 import { getCookie } from '../lib/cookies';
+
+// Where to send the user back to after they finish managing platform
+// connections, if they arrived here from a bot's "connect your account" link.
+const BOT_RETURN_LINKS: Record<string, { label: string; url?: string }> = {
+  telegram: { label: 'Telegram', url: import.meta.env.VITE_TELEGRAM_BOT_URL },
+  whatsapp: { label: 'WhatsApp', url: import.meta.env.VITE_WHATSAPP_URL },
+};
+
+const BOT_RETURN_STORAGE_KEY = 'platforms_return_to';
 
 interface SocialAccount {
   id: string;
@@ -49,6 +58,8 @@ const SUPPORTED_PLATFORMS = [
 export default function Platforms() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [returnTo, setReturnTo] = useState<string | null>(null);
 
   const fetchAccounts = async () => {
     try {
@@ -63,6 +74,28 @@ export default function Platforms() {
 
   useEffect(() => {
     fetchAccounts();
+
+    // Handle the redirect back from the OAuth callback (?connected=/?error=)
+    // and remember where to send the user back to if they arrived via a
+    // bot "connect your account" link (?from=telegram|whatsapp).
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    const error = params.get('error');
+    const from = params.get('from');
+
+    if (from) sessionStorage.setItem(BOT_RETURN_STORAGE_KEY, from);
+    const storedReturnTo = sessionStorage.getItem(BOT_RETURN_STORAGE_KEY);
+    if (storedReturnTo && BOT_RETURN_LINKS[storedReturnTo]) setReturnTo(storedReturnTo);
+
+    if (connected) {
+      setNotice({ type: 'success', message: `${connected[0].toUpperCase()}${connected.slice(1)} account connected successfully.` });
+    } else if (error) {
+      setNotice({ type: 'error', message: `Connection failed: ${error.replace(/_/g, ' ')}` });
+    }
+
+    if (connected || error || from) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   const connectPlatform = async (platform: string) => {
@@ -73,7 +106,8 @@ export default function Platforms() {
       console.error('Failed to verify token before redirecting:', err);
     }
     const token = getCookie('access_token');
-    window.location.href = `${import.meta.env.VITE_API_URL}/oauth/${platform.toLowerCase()}/connect?token=${token}`;
+    const fromParam = returnTo ? `&from=${returnTo}` : '';
+    window.location.href = `${import.meta.env.VITE_API_URL}/oauth/${platform.toLowerCase()}/connect?token=${token}${fromParam}`;
   };
 
   const disconnectPlatform = async (id: string) => {
@@ -105,6 +139,37 @@ export default function Platforms() {
           Establish secure OAuth 2.0 links to publish automatically from your connected bots.
         </p>
       </header>
+
+      {notice && (
+        <div className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm font-medium ${
+          notice.type === 'success'
+            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+            : 'border-rose-500/20 bg-rose-500/10 text-rose-400'
+        }`}>
+          <div className="flex items-center gap-2">
+            {notice.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            <span>{notice.message}</span>
+          </div>
+          <button onClick={() => setNotice(null)} className="text-current/70 hover:text-current transition">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {returnTo && BOT_RETURN_LINKS[returnTo]?.url && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-4 py-3 text-sm">
+          <span className="text-indigo-300">
+            Finished connecting your accounts? Head back to {BOT_RETURN_LINKS[returnTo].label} to continue.
+          </span>
+          <a
+            href={BOT_RETURN_LINKS[returnTo].url}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold transition duration-300 whitespace-nowrap"
+          >
+            <ArrowLeft size={14} />
+            Return to {BOT_RETURN_LINKS[returnTo].label}
+          </a>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {SUPPORTED_PLATFORMS.map((p) => {

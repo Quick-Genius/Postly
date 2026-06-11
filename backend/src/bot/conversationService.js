@@ -118,8 +118,8 @@ async function getConnectedPlatforms(userId) {
   }
 }
 
-function notConnectedText(value) {
-  return `⚠️ Your ${platformName(value)} account isn't connected yet.\nConnect it here: ${env.frontendUrl}/platforms\n\nThen come back and select it again.`;
+function notConnectedText(value, platform) {
+  return `⚠️ Your ${platformName(value)} account isn't connected yet.\nConnect it here: ${env.frontendUrl}/platforms?from=${platform}\n\nThen come back and select it again.`;
 }
 
 /**
@@ -380,7 +380,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
       const notConnected = requested.filter((p) => !connectedPlatforms.has(p));
       const toAdd = requested.filter((p) => connectedPlatforms.has(p));
       const notConnectedNote = notConnected.length
-        ? `\n\n${notConnected.map(notConnectedText).join('\n')}`
+        ? `\n\n${notConnected.map((p) => notConnectedText(p, platform)).join('\n')}`
         : '';
 
       const current = session.platforms ?? [];
@@ -439,7 +439,7 @@ async function processMessage({ platform, chatId, session, action, text }) {
       if (!connectedPlatforms.has(value)) {
         const choices = buildPlatformChoices(current);
         return reply(
-          `${notConnectedText(value)}\n\nSelected: ${selectedPlatformsText(current)}`,
+          `${notConnectedText(value, platform)}\n\nSelected: ${selectedPlatformsText(current)}`,
           choices, 'platform', session,
         );
       }

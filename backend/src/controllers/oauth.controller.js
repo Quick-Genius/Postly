@@ -18,6 +18,7 @@
  */
 
 const oauthService = require('../services/oauth.service');
+const env = require('../config/env');
 
 // ── Twitter ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,8 @@ const oauthService = require('../services/oauth.service');
 async function twitterConnect(req, res, next) {
   try {
     if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
-    const { auth_url } = await oauthService.twitterConnect(req.userId);
+    const { from } = req.query;
+    const { auth_url } = await oauthService.twitterConnect(req.userId, from);
     return res.redirect(auth_url);
   } catch (err) {
     next(err);
@@ -40,16 +42,20 @@ async function twitterConnect(req, res, next) {
  * GET /api/oauth/twitter/callback
  * Unauthenticated — called by Twitter after user authorizes.
  * Query params: code, state
+ *
+ * On completion (success or failure) the browser is redirected back to the
+ * frontend's /platforms page so the user sees the result in the app, rather
+ * than a bare JSON response on the API domain.
  */
 async function twitterCallback(req, res, next) {
-  try {
-    const { code, state } = req.query;
+  const { code, state } = req.query;
 
-    if (!code)  return res.status(400).json({ error: 'Missing authorization code' });
-    if (!state) return res.status(400).json({ error: 'Missing state parameter' });
+  try {
+    if (!code)  return res.redirect(`${env.frontendUrl}/platforms?error=missing_code`);
+    if (!state) return res.redirect(`${env.frontendUrl}/platforms?error=missing_state`);
 
     const result = await oauthService.twitterCallback(code, state);
-    
+
     try {
       const { createPublisher } = require('../lib/ipcChannel');
       if (!global.ipcPublisher) {
@@ -65,10 +71,12 @@ async function twitterCallback(req, res, next) {
       // IPC failure must never break the OAuth success response
       console.warn('IPC publish failed for account_linked', e);
     }
-    
-    res.status(200).json({ message: 'Twitter account connected successfully', ...result });
+
+    const params = new URLSearchParams({ connected: 'twitter' });
+    if (result.from) params.set('from', result.from);
+    return res.redirect(`${env.frontendUrl}/platforms?${params}`);
   } catch (err) {
-    next(err);
+    return res.redirect(`${env.frontendUrl}/platforms?error=${encodeURIComponent(err.message)}`);
   }
 }
 
@@ -82,7 +90,8 @@ async function twitterCallback(req, res, next) {
 async function linkedinConnect(req, res, next) {
   try {
     if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
-    const { auth_url } = await oauthService.linkedinConnect(req.userId);
+    const { from } = req.query;
+    const { auth_url } = await oauthService.linkedinConnect(req.userId, from);
     return res.redirect(auth_url);
   } catch (err) {
     next(err);
@@ -93,13 +102,17 @@ async function linkedinConnect(req, res, next) {
  * GET /api/oauth/linkedin/callback
  * Unauthenticated — called by LinkedIn after user authorizes.
  * Query params: code, state
+ *
+ * On completion (success or failure) the browser is redirected back to the
+ * frontend's /platforms page so the user sees the result in the app, rather
+ * than a bare JSON response on the API domain.
  */
 async function linkedinCallback(req, res, next) {
-  try {
-    const { code, state } = req.query;
+  const { code, state } = req.query;
 
-    if (!code)  return res.status(400).json({ error: 'Missing authorization code' });
-    if (!state) return res.status(400).json({ error: 'Missing state parameter' });
+  try {
+    if (!code)  return res.redirect(`${env.frontendUrl}/platforms?error=missing_code`);
+    if (!state) return res.redirect(`${env.frontendUrl}/platforms?error=missing_state`);
 
     const result = await oauthService.linkedinCallback(code, state);
 
@@ -118,9 +131,11 @@ async function linkedinCallback(req, res, next) {
       console.warn('IPC publish failed for account_linked', e);
     }
 
-    res.status(200).json({ message: 'LinkedIn account connected successfully', ...result });
+    const params = new URLSearchParams({ connected: 'linkedin' });
+    if (result.from) params.set('from', result.from);
+    return res.redirect(`${env.frontendUrl}/platforms?${params}`);
   } catch (err) {
-    next(err);
+    return res.redirect(`${env.frontendUrl}/platforms?error=${encodeURIComponent(err.message)}`);
   }
 }
 
