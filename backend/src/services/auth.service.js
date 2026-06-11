@@ -25,9 +25,17 @@ async function issueRefreshToken(userId) {
   return raw;
 }
 
-async function issueTokenPair(userId) {
+/**
+ * Issues an access + refresh token pair.
+ * The user's email is embedded in the access token as the `email` claim so
+ * that any JWT consumer can cross-validate identity without an extra DB look-up.
+ *
+ * @param {string} userId  - DB UUID
+ * @param {string} [email] - User's email address
+ */
+async function issueTokenPair(userId, email) {
   const [accessToken, refreshToken] = await Promise.all([
-    Promise.resolve(signAccessToken(userId)),
+    Promise.resolve(signAccessToken(userId, email)),
     issueRefreshToken(userId),
   ]);
   return { access_token: accessToken, refresh_token: refreshToken };
@@ -47,7 +55,8 @@ async function register({ email, password, name }) {
 
   await analyticsService.logEvent(user.id, analyticsService.EVENT_TYPES.SIGNUP);
 
-  const tokens = await issueTokenPair(user.id);
+  // Pass email so it is embedded in the JWT for identity cross-validation.
+  const tokens = await issueTokenPair(user.id, user.email);
   return { user, ...tokens };
 }
 
@@ -65,7 +74,8 @@ async function login({ email, password }) {
 
   await analyticsService.logEvent(user.id, analyticsService.EVENT_TYPES.LOGIN);
 
-  return issueTokenPair(user.id);
+  // Pass email so it is embedded in the JWT for identity cross-validation.
+  return issueTokenPair(user.id, user.email);
 }
 
 async function upsertClerkUser({ clerkId, email, name, role }) {
@@ -103,7 +113,8 @@ async function upsertClerkUser({ clerkId, email, name, role }) {
     await analyticsService.logEvent(user.id, analyticsService.EVENT_TYPES.LOGIN);
   }
 
-  return issueTokenPair(user.id);
+  // Pass email so it is embedded in the JWT for identity cross-validation.
+  return issueTokenPair(user.id, user.email);
 }
 
 async function rotateRefreshToken(rawToken) {
@@ -124,8 +135,14 @@ async function rotateRefreshToken(rawToken) {
   }
 
   // Rotate atomically: invalidate the presented token before issuing the new pair.
+  // Re-fetch the user to embed the current email in the new token.
   await prisma.refreshToken.delete({ where: { id: stored.id } });
-  return issueTokenPair(stored.userId);
+  const user = await prisma.user.findUnique({
+    where: { id: stored.userId },
+    select: { id: true, email: true },
+  });
+  if (!user) throw new AuthError('User not found', 404);
+  return issueTokenPair(user.id, user.email);
 }
 
 async function logout(rawToken) {

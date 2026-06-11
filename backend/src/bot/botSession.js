@@ -32,15 +32,19 @@ async function getSession(platform, chatId) {
   if (platform === 'telegram') {
     connection = await prisma.telegramConnection.findUnique({
       where: { telegramChatId: chatId },
+      include: { user: { select: { id: true, email: true } } },
     });
   } else if (platform === 'whatsapp') {
     connection = await prisma.whatsappConnection.findUnique({
       where: { phoneNumber: chatId },
+      include: { user: { select: { id: true, email: true } } },
     });
   }
 
   if (connection) {
-    const session = blankFlow(connection.userId);
+    // Store the user's email alongside the userId so downstream services can
+    // detect cross-user identity contamination without an extra DB lookup.
+    const session = blankFlow(connection.userId, connection.user?.email ?? null);
     await setSession(platform, chatId, session);
     return session;
   }
@@ -87,12 +91,17 @@ async function clearLinkToken(token) {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**
- * Returns a blank session. userId is preserved so the account link survives
- * a /start reset. pendingChoices holds the last menu for WhatsApp number mapping.
+ * Returns a blank session. userId and userEmail are preserved so the account
+ * link survives a /start reset. pendingChoices holds the last menu for WhatsApp
+ * number mapping.
+ *
+ * @param {string|null} userId    - Internal DB UUID of the linked user.
+ * @param {string|null} userEmail - Email of the linked user (for identity validation).
  */
-function blankFlow(userId = null) {
+function blankFlow(userId = null, userEmail = null) {
   return {
     userId,
+    userEmail,   // stored for cross-user identity validation in conversationService
     state:            'IDLE',
     contentType:      null,
     platforms:        [],

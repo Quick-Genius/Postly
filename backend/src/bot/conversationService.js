@@ -20,6 +20,7 @@
 const { generateContent }   = require('../services/content.service');
 const postsService          = require('../services/posts.service');
 const userService           = require('../services/user.service');
+const prisma                = require('../config/prisma');
 const { verifyAccessToken } = require('../utils/jwt');
 const getBotSession         = () => require('./botSession');
 const env                   = require('../config/env');
@@ -105,6 +106,43 @@ function selectedPlatformsText(platforms = []) {
 }
 
 /**
+ * Validates that the userId stored in the bot session still maps to a real,
+ * consistent user in the database.
+ *
+ * If the session was restored from a stale TelegramConnection record that
+ * points to a different user, the userId and userEmail will not match — this
+ * guard catches that and returns false, prompting the user to re-link.
+ *
+ * @param {{ userId: string|null, userEmail: string|null }} session
+ * @returns {Promise<boolean>} true if the session identity is valid
+ */
+async function validateSessionUser(session) {
+  if (!session?.userId) return false;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, email: true },
+    });
+    if (!user) return false;
+
+    // If the session was seeded with an email (from DB restore), verify it
+    // matches the email on the user record.  A mismatch means the
+    // TelegramConnection still points to the old user after a re-link.
+    if (session.userEmail && user.email !== session.userEmail) {
+      logger.warn('Session userId/email mismatch — possible stale TelegramConnection', {
+        sessionUserId:    session.userId,
+        sessionUserEmail: session.userEmail,
+        dbUserEmail:      user.email,
+      });
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Returns the set of platform values (lowercase, e.g. "twitter") for which
  * the user has a connected social account.
  */
@@ -176,7 +214,7 @@ async function handleCommand({ command, args, platform, chatId, session }) {
     case 'start': {
       // restart behaves like start after wiping in-progress flow state
       // while preserving the linked user.
-      const resetBase = getBotSession().blankFlow(userId);
+      const resetBase = getBotSession().blankFlow(userId, session?.userEmail ?? null);
 
       if (!userId) {
         const token = crypto.randomUUID();
@@ -192,6 +230,21 @@ async function handleCommand({ command, args, platform, chatId, session }) {
           null, null, session,
         );
       }
+
+      // Validate that the userId stored in this session still corresponds to a
+      // real, consistent user. If not, force a re-link to prevent cross-user leakage.
+      const isValidUser = await validateSessionUser(session);
+      if (!isValidUser) {
+        const token = crypto.randomUUID();
+        await getBotSession().setLinkToken(token, platform, chatId);
+        const linkUrl = `${env.frontendUrl}/auth?bot_link=${token}`;
+        return reply(
+          `⚠️ Your session has expired or your account link has changed.\n\n` +
+          `Please re-link your account:\n${linkUrl}`,
+          null, null, null,
+        );
+      }
+
       const newSess = { ...resetBase, state: 'SELECT_TYPE', pendingChoices: TYPE_CHOICES };
       await getBotSession().setSession(platform, chatId, newSess);
       return reply(
@@ -435,6 +488,19 @@ async function processMessage({ platform, chatId, session, action, text }) {
     // Only block *new* selections — removing an already-selected platform
     // (or re-tapping it on WhatsApp) never needs a connection check.
     if (!alreadySelected) {
+      // Guard: verify session user is still the correct user before checking
+      // platform connections — prevents cross-user leakage if the session
+      // userId belongs to a stale TelegramConnection.
+      const isValidUser = await validateSessionUser(session);
+      if (!isValidUser) {
+        const token = crypto.randomUUID();
+        await getBotSession().setLinkToken(token, platform, chatId);
+        const linkUrl = `${env.frontendUrl}/auth?bot_link=${token}`;
+        return reply(
+          `⚠️ Session identity mismatch. Please re-link your account:\n${linkUrl}`,
+          null, null, null,
+        );
+      }
       const connectedPlatforms = await getConnectedPlatforms(userId);
       if (!connectedPlatforms.has(value)) {
         const choices = buildPlatformChoices(current);

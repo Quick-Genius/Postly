@@ -29,7 +29,19 @@ async function linkBot(req, res, next) {
     const { platform, chatId } = linkData;
 
     // 1. Link the user to the bot session (Redis)
-    await botSession.updateSession(platform, chatId, { userId, state: 'IDLE' });
+    //    IMPORTANT: clear the existing session first — if a *different* user
+    //    previously linked this chat, the old session in Redis would still hold
+    //    the old userId and could leak their platform connections to the new user.
+    await botSession.clearSession(platform, chatId);
+
+    // Fetch the user's email to embed in the fresh session for identity validation.
+    const linkedUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+    const freshSession = botSession.blankFlow(userId, linkedUser?.email ?? null);
+    freshSession.state = 'IDLE';
+    await botSession.setSession(platform, chatId, freshSession);
 
     // 2. Persist the connection in the database
     if (platform === 'telegram') {
